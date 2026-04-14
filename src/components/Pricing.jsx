@@ -1,58 +1,17 @@
-const plans = [
-  {
-    name: "Basico",
-    price: "$0",
-    period: "/mes",
-    description: "Perfecto para empezar",
-    features: [
-      "1 proyecto",
-      "Soporte por email",
-      "Actualizaciones basicas",
-    ],
-    cta: "Empezar gratis",
-    highlighted: false,
-  },
-  {
-    name: "Pro",
-    price: "$29",
-    period: "/mes",
-    description: "Para crecer tu negocio",
-    features: [
-      "Proyectos ilimitados",
-      "Soporte prioritario",
-      "Todas las funcionalidades",
-      "Analiticas avanzadas",
-    ],
-    cta: "Elegir Pro",
-    highlighted: true,
-  },
-  {
-    name: "Enterprise",
-    price: "$99",
-    period: "/mes",
-    description: "Para equipos grandes",
-    features: [
-      "Todo lo de Pro",
-      "Soporte dedicado 24/7",
-      "Integraciones custom",
-      "SLA garantizado",
-    ],
-    cta: "Contactar ventas",
-    highlighted: false,
-  },
-];
+import { siteConfig } from "@/config/site";
 
 export default function Pricing() {
+  const { heading, subheading, plans } = siteConfig.pricing;
+
   return (
     <section id="pricing" className="py-20 px-6">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            Precios simples y transparentes
+            {heading}
           </h2>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Elige el plan que mejor se adapte a tus necesidades. Sin costos
-            ocultos.
+            {subheading}
           </p>
         </div>
         <div className="grid md:grid-cols-3 gap-8 items-start">

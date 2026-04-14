@@ -1,28 +1,23 @@
 "use client";
 
 import { useState } from "react";
-
-const navLinks = [
-  { label: "Inicio", href: "#hero" },
-  { label: "Features", href: "#features" },
-  { label: "Precios", href: "#pricing" },
-  { label: "FAQ", href: "#faq" },
-  { label: "Contacto", href: "#contact" },
-];
+import { siteConfig } from "@/config/site";
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { name } = siteConfig;
+  const { links } = siteConfig.nav;
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
       <nav className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <a href="#hero" className="text-xl font-bold text-gray-900">
-          VibeCoding
+          {name}
         </a>
 
         {/* Desktop */}
         <ul className="hidden md:flex items-center gap-8">
-          {navLinks.map((link) => (
+          {links.map((link) => (
             <li key={link.href}>
               <a
                 href={link.href}
@@ -53,7 +48,7 @@ export default function Header() {
       {/* Mobile menu */}
       {menuOpen && (
         <ul className="md:hidden bg-white border-b border-gray-100 px-6 pb-4 space-y-3">
-          {navLinks.map((link) => (
+          {links.map((link) => (
             <li key={link.href}>
               <a
                 href={link.href}

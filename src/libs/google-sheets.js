@@ -9,7 +9,22 @@ function getAuth() {
   });
 }
 
-export async function addRowToSheet({ name, email, message }) {
+export async function getLeads() {
+  const auth = getAuth();
+  const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
+  await doc.loadInfo();
+  const sheet = doc.sheetsByIndex[0];
+  const rows = await sheet.getRows();
+  return rows.map((row) => ({
+    fecha: row.get("Fecha") || "",
+    nombre: row.get("Nombre") || "",
+    email: row.get("Email") || "",
+    telefono: row.get("Telefono") || "",
+    mensaje: row.get("Mensaje") || "",
+  }));
+}
+
+export async function addRowToSheet({ name, email, phone, message }) {
   const auth = getAuth();
   const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
   await doc.loadInfo();
@@ -18,6 +33,7 @@ export async function addRowToSheet({ name, email, message }) {
     Fecha: new Date().toLocaleString("es-MX"),
     Nombre: name,
     Email: email,
+    Telefono: phone || "",
     Mensaje: message,
   });
 }

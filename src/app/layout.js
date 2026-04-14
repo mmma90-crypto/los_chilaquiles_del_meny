@@ -1,5 +1,6 @@
 import { Geist } from "next/font/google";
 import "./globals.css";
+import { siteConfig } from "@/config/site";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -7,9 +8,8 @@ const geistSans = Geist({
 });
 
 export const metadata = {
-  title: "VibeCoding - Tu plantilla para lanzar rapido",
-  description:
-    "Plantilla moderna con Next.js, Tailwind CSS, formulario de contacto, Google Sheets y Resend.",
+  title: siteConfig.metadata.title,
+  description: siteConfig.metadata.description,
 };
 
 export default function RootLayout({ children }) {

@@ -1,34 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-const faqs = [
-  {
-    question: "Como puedo empezar a usar la plantilla?",
-    answer:
-      "Solo necesitas clonar el repositorio, instalar las dependencias con npm install y correr npm run dev. Es asi de simple.",
-  },
-  {
-    question: "Necesito saber programar?",
-    answer:
-      "No necesitas experiencia previa. La plantilla esta disenada para que puedas personalizar textos, colores e imagenes facilmente.",
-  },
-  {
-    question: "Puedo usar mi propio dominio?",
-    answer:
-      "Si, al hacer deploy puedes conectar cualquier dominio personalizado que tengas.",
-  },
-  {
-    question: "Que metodos de pago aceptan?",
-    answer:
-      "Aceptamos tarjetas de credito y debito a traves de nuestra plataforma de pagos segura.",
-  },
-  {
-    question: "Ofrecen soporte tecnico?",
-    answer:
-      "Si, todos los planes incluyen soporte por email. Los planes Pro y Enterprise incluyen soporte prioritario.",
-  },
-];
+import { siteConfig } from "@/config/site";
 
 function FAQItem({ question, answer }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -64,19 +37,21 @@ function FAQItem({ question, answer }) {
 }
 
 export default function FAQ() {
+  const { heading, subheading, items } = siteConfig.faq;
+
   return (
     <section id="faq" className="py-20 px-6 bg-gray-50">
       <div className="max-w-3xl mx-auto">
         <div className="text-center mb-12">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            Preguntas frecuentes
+            {heading}
           </h2>
           <p className="text-lg text-gray-600">
-            Resolvemos tus dudas mas comunes.
+            {subheading}
           </p>
         </div>
         <div>
-          {faqs.map((faq, index) => (
+          {items.map((faq, index) => (
             <FAQItem key={index} question={faq.question} answer={faq.answer} />
           ))}
         </div>
