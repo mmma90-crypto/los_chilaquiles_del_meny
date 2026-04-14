@@ -101,6 +101,7 @@ Estructura del objeto:
 - `footer` — tagline, links[], copyright
 - `email` — subject, teamSignature, from
 - `colors` — referencia documental de colores Tailwind usados
+- `payment` — enabled (bool), paypalMeUsername, defaultAmount, currency, buttonText — activa el boton de pago PayPal
 - `metadata` — title y description para SEO
 
 ### `src/app/globals.css`
@@ -116,6 +117,7 @@ Variables de entorno secretas. No se commitea. Contiene:
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL` — email de la service account de Google
 - `GOOGLE_PRIVATE_KEY` — clave privada RSA de la service account (con `\n` como saltos de linea)
 - `GOOGLE_SHEET_ID` — ID de la hoja de calculo de Google Sheets
+- `ADMIN_PASSWORD` — contrasena para acceder al panel de administracion en `/admin`
 
 ---
 
@@ -131,16 +133,23 @@ Cada componente ya esta conectado a `siteConfig`. Modificar estos archivos direc
 - `FAQ.jsx` — acordeon controlado con estado local de React
 - `ContactForm.jsx` — formulario con 3 estados: `idle`, `loading`, `success`/`error`; hace POST a `/api/contact`
 - `Footer.jsx` — pie de pagina con nombre, tagline, links y copyright
+- `PaymentButton.jsx` — boton de pago con PayPal.me; se renderiza solo si `siteConfig.payment.enabled` es `true` y `paypalMeUsername` tiene valor. Acepta prop opcional `amount` para sobrescribir el monto por defecto.
 
 ### App shell (`src/app/`)
-- `layout.js` — RootLayout con fuente Geist, metadata desde `siteConfig`, lang="es"
+- `layout.js` — RootLayout con fuente Geist (`--font-geist-sans`), metadata desde `siteConfig`, lang="es"
 - `page.js` — home page que ensambla todos los componentes en orden
-- `globals.css` — importa Tailwind v4 y define `--font-sans`
+- `globals.css` — importa Tailwind v4 y define variables CSS de fuente
 - `api/contact/route.js` — POST handler: valida campos, escribe en Google Sheets, envia email via Resend
+- `admin/page.jsx` — panel privado en `/admin`; muestra `LoginForm` si no hay sesion, `LeadsTable` si esta autenticado. Requiere `ADMIN_PASSWORD` en `.env.local`. Si no esta definido, muestra instrucciones de configuracion.
+- `admin/LoginForm.jsx` — formulario de acceso al panel; Client Component
+- `admin/LeadsTable.jsx` — tabla con todos los leads de Google Sheets; Client Component
+- `admin/actions.js` — Server Actions del panel (login, logout)
 
 ### Librerias (`src/libs/`)
-- `resend.js` — singleton de la clase Resend inicializado con `RESEND_API_KEY`
-- `google-sheets.js` — funcion `addRowToSheet()` con autenticacion JWT, agrega fila con columnas: Fecha, Nombre, Email, Mensaje
+- `resend.js` — singleton `resend` de la clase Resend inicializado con `RESEND_API_KEY`; exportado como named export `{ resend }`
+- `google-sheets.js` — dos funciones con autenticacion JWT:
+  - `addRowToSheet({ name, email, phone, message })` — agrega fila con columnas: Fecha, Nombre, Email, Telefono, Mensaje
+  - `getLeads()` — devuelve todas las filas como array de objetos `{ fecha, nombre, email, telefono, mensaje }`; usada por el panel admin
 
 ### Configuracion de proyecto
 - `package.json` — dependencias y scripts
@@ -166,7 +175,7 @@ Los componentes marcados con `"use client"` son: `Header.jsx` (estado del menu m
 1. Escribe en Google Sheets via `addRowToSheet()`
 2. Envia email de confirmacion via Resend
 
-Si alguna falla, devuelve HTTP 500. El email usa el `from` de `siteConfig.email.from` como fallback si no esta definido `RESEND_FROM_EMAIL` en el entorno.
+Si Google Sheets falla, devuelve HTTP 500. Si el email falla, devuelve exito de todas formas porque el lead ya quedo guardado. El email usa el `from` de `siteConfig.email.from` como fallback si no esta definido `RESEND_FROM_EMAIL` en el entorno.
 
 ### Iconos en Features
 Los SVG de iconos estan definidos en un `iconMap` dentro de `Features.jsx` y se referencian por nombre string (`"lightning"`, `"mobile"`, `"settings"`) desde `siteConfig.features.items[].icon`. Para agregar un nuevo icono, el alumno debe: (1) agregar el SVG al `iconMap` en `Features.jsx`, (2) usar el nuevo nombre en `site.js`.
