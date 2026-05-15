@@ -1,4 +1,5 @@
 import { siteConfig } from "@/config/site";
+import PaymentButton from "@/components/PaymentButton";
 
 export default function Pricing() {
   const { heading, subheading, plans } = siteConfig.pricing;
@@ -15,15 +16,18 @@ export default function Pricing() {
           </p>
         </div>
         <div className="grid md:grid-cols-3 gap-8 items-start">
-          {plans.map((plan, index) => (
-            <div
-              key={index}
-              className={`rounded-2xl p-8 border ${
-                plan.highlighted
-                  ? "border-indigo-600 bg-indigo-600 text-white shadow-xl scale-105"
-                  : "border-gray-200 bg-white"
-              }`}
-            >
+          {plans.map((plan, index) => {
+            const planAmount = Number(plan.price.replace(/[^\d.]/g, ""));
+
+            return (
+              <div
+                key={index}
+                className={`rounded-2xl p-8 border ${
+                  plan.highlighted
+                    ? "border-indigo-600 bg-indigo-600 text-white shadow-xl scale-105"
+                    : "border-gray-200 bg-white"
+                }`}
+              >
               <h3
                 className={`text-lg font-semibold mb-1 ${
                   plan.highlighted ? "text-indigo-100" : "text-gray-900"
@@ -70,18 +74,10 @@ export default function Pricing() {
                   </li>
                 ))}
               </ul>
-              <a
-                href="#contact"
-                className={`block w-full py-3 text-center rounded-full font-medium transition-colors ${
-                  plan.highlighted
-                    ? "bg-white text-indigo-600 hover:bg-indigo-50"
-                    : "bg-indigo-600 text-white hover:bg-indigo-700"
-                }`}
-              >
-                {plan.cta}
-              </a>
-            </div>
-          ))}
+                <PaymentButton amount={planAmount} className="w-full" />
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
