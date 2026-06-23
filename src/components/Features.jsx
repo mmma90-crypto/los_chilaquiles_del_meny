@@ -1,4 +1,6 @@
+"use client";
 import { siteConfig } from "@/config/site";
+import { useScrollAnimation } from "@/components/useScrollAnimation";
 
 const iconMap = {
   lightning: (
@@ -18,35 +20,30 @@ const iconMap = {
   ),
 };
 
+const delays = ["delay-0", "delay-150", "delay-300"];
+
 export default function Features() {
   const { heading, subheading, items } = siteConfig.features;
+  const { ref, visible } = useScrollAnimation(0.1);
 
   return (
-    <section id="features" className="py-20 px-6 bg-gray-50">
+    <section id="features" className="py-20 px-6 bg-crema-100/50">
       <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            {heading}
-          </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            {subheading}
-          </p>
+        <div ref={ref} className={`text-center mb-16 transition-all duration-700 ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
+          <h2 className="text-3xl md:text-4xl font-bold text-stone-900 mb-4">{heading}</h2>
+          <p className="text-lg text-stone-600 max-w-2xl mx-auto">{subheading}</p>
         </div>
         <div className="grid md:grid-cols-3 gap-8">
           {items.map((feature, index) => (
             <div
               key={index}
-              className="bg-white p-8 rounded-2xl border border-gray-100 hover:shadow-lg transition-shadow"
+              className={`bg-white p-8 rounded-2xl border border-crema-200 hover:shadow-lg hover:shadow-salsa-700/5 hover:-translate-y-1 transition-all duration-500 ${delays[index]} ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}
             >
-              <div className="w-12 h-12 bg-sky-50 text-sky-500 rounded-xl flex items-center justify-center mb-5">
+              <div className="w-12 h-12 bg-verde-50 text-verde-600 rounded-xl flex items-center justify-center mb-5">
                 {iconMap[feature.icon] ?? iconMap.settings}
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                {feature.title}
-              </h3>
-              <p className="text-gray-600 leading-relaxed">
-                {feature.description}
-              </p>
+              <h3 className="text-xl font-semibold text-stone-900 mb-3">{feature.title}</h3>
+              <p className="text-stone-600 leading-relaxed">{feature.description}</p>
             </div>
           ))}
         </div>

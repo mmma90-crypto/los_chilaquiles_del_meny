@@ -1,256 +1,491 @@
 /**
+
  * ARCHIVO DE CONFIGURACION CENTRAL
+
  * =================================
+
  * Este es el archivo que debes editar para personalizar tu landing page.
+
  * Cambia los textos, colores y datos de contacto aqui.
+
  * Los cambios se aplicaran automaticamente en toda la pagina.
+
  */
 
+
+
 export const siteConfig = {
+
   // ─────────────────────────────────────────────
+
   // INFORMACION DEL NEGOCIO
+
   // ─────────────────────────────────────────────
-  name: "VibeCoding",
-  tagline: "La plantilla perfecta para lanzar tu idea al mundo.",
+
+  name: "Los Chilaquiles del Meny",
+
+  tagline: "Los favoritos, sabor casero en cada bocado.",
+
   description:
-    "Rapido, moderno y listo para personalizar a tu gusto.",
+
+    "Chilaquiles verdes y rojos, picosos o suaves, con la proteina que mas te guste. Solo domingos.",
+
+
 
   // ─────────────────────────────────────────────
+
+  // HORARIO — agrega mas dias copiando una linea en schedule
+
+  // Ejemplo: { day: "Sabado", open: "9:00 AM", close: "2:00 PM" },
+
+  // ─────────────────────────────────────────────
+
+  hours: {
+
+    heading: "Horario de atencion",
+
+    schedule: [
+
+      { day: "Domingo", open: "9:00 AM", close: "1:00 PM" },
+
+    ],
+
+  },
+
+
+
+  // ─────────────────────────────────────────────
+
   // SECCION HERO (la primera pantalla que ven los visitantes)
+
   // ─────────────────────────────────────────────
+
   hero: {
-    badge: "Bienvenido a tu nuevo proyecto",
-    title: "Construye algo",
-    titleHighlight: "increible",
+
+    badge: "Domingos 9 AM – 1 PM",
+
+    title: "Los Chilaquiles",
+
+    titleHighlight: "del Meny",
+
     subtitle:
-      "La plantilla perfecta para lanzar tu idea al mundo. Rapido, moderno y listo para personalizar a tu gusto.",
-    ctaPrimary: "Empezar ahora",
-    ctaSecondary: "Ver mas",
-    // Enlace del boton principal. Puedes poner una URL de Calendly o Google Calendar.
-    // Ejemplo Calendly: "https://calendly.com/tu-usuario/30min"
-    // Ejemplo Google Calendar: "https://calendar.google.com/calendar/appointments/..."
-    ctaPrimaryUrl: "#contacto",
-    ctaSecondaryUrl: "#features",
+
+      "Los favoritos, sabor casero en cada bocado. Chilaquiles verdes y rojos, picosos o suaves, con pollo, huevo, chicharron prensado, barbacoa y mas.",
+
+    ctaPrimary: "Ver menu",
+
+    ctaSecondary: "Contactanos",
+
+    ctaPrimaryUrl: "#pricing",
+
+    ctaSecondaryUrl: "#contact",
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // BENEFICIOS / FEATURES (seccion de caracteristicas)
+
   // ─────────────────────────────────────────────
+
   features: {
-    heading: "Todo lo que necesitas para lanzar",
-    subheading: "Caracteristicas disenadas para ayudarte a crecer.",
+
+    heading: "Sabor casero que se nota",
+
+    subheading: "Preparamos cada orden con ingredientes frescos y recetas de casa.",
+
     items: [
+
       {
+
         icon: "lightning",
-        title: "Rapido y eficiente",
+
+        title: "Hechos al momento",
+
         description:
-          "Optimizado para velocidad. Tu sitio cargara en un instante y tus usuarios lo amaran.",
+
+          "Tus chilaquiles se preparan cuando los pides, crujientes por fuera y con la salsa justa.",
+
       },
+
       {
+
         icon: "mobile",
-        title: "Diseno responsive",
+
+        title: "Verdes o rojos, tu eliges",
+
         description:
-          "Se ve perfecto en cualquier dispositivo: celular, tablet o computadora.",
+
+          "Salsa verde o roja, picosa o suave. Combina como quieras en cada visita.",
+
       },
+
       {
+
         icon: "settings",
-        title: "Facil de personalizar",
+
+        title: "Domingos en familia",
+
         description:
-          "Cambia colores, textos e imagenes facilmente desde un solo archivo de configuracion.",
+
+          "Nos vemos los domingos de 9 AM a 1 PM. El plan perfecto para un desayuno casero.",
+
       },
+
     ],
+
   },
 
+
+
   // ─────────────────────────────────────────────
-  // PRECIOS (planes de pago)
+
+  // MENU (seccion de precios — aqui va tu carta)
+
   // ─────────────────────────────────────────────
+
   pricing: {
-    heading: "Precios simples y transparentes",
+
+    heading: "Nuestro menu",
+
     subheading:
-      "Elige el plan que mejor se adapte a tus necesidades. Sin costos ocultos.",
+
+      "Elige tu salsa y la proteina que prefieras. Pregunta precios al ordenar.",
+
     plans: [
+
       {
-        name: "Basico",
-        price: "$0",
-        period: "/mes",
-        description: "Perfecto para empezar",
-        features: [
-          "1 proyecto",
-          "Soporte por email",
-          "Actualizaciones basicas",
-        ],
-        cta: "Empezar gratis",
+
+        name: "Chilaquiles verdes",
+
+        price: "Consultar",
+
+        period: "",
+
+        description: "Salsa verde casera",
+
+        features: ["Picosos", "No picosos"],
+
+        cta: "Ordenar",
+
         highlighted: false,
+
       },
+
       {
-        name: "Pro",
-        price: "$29",
-        period: "/mes",
-        description: "Para crecer tu negocio",
-        features: [
-          "Proyectos ilimitados",
-          "Soporte prioritario",
-          "Todas las funcionalidades",
-          "Analiticas avanzadas",
-        ],
-        cta: "Empezar ahora",
+
+        name: "Chilaquiles rojos",
+
+        price: "Consultar",
+
+        period: "",
+
+        description: "Salsa roja casera",
+
+        features: ["Picosos", "No picosos"],
+
+        cta: "Ordenar",
+
         highlighted: true,
+
       },
+
       {
-        name: "Enterprise",
-        price: "$99",
-        period: "/mes",
-        description: "Para equipos grandes",
+
+        name: "Con proteina",
+
+        price: "Consultar",
+
+        period: "",
+
+        description: "Agrega a tus chilaquiles",
+
         features: [
-          "Todo lo de Pro",
-          "Soporte dedicado 24/7",
-          "Integraciones custom",
-          "SLA garantizado",
+
+          "Sencillos",
+
+          "Pollo",
+
+          "Huevo",
+
+          "Chicharron prensado",
+
+          "Barbacoa",
+
         ],
-        cta: "Contactar ventas",
+
+        cta: "Ordenar",
+
         highlighted: false,
+
       },
+
     ],
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // PREGUNTAS FRECUENTES (FAQ)
+
   // ─────────────────────────────────────────────
+
   faq: {
+
     heading: "Preguntas frecuentes",
-    subheading: "Resolvemos tus dudas mas comunes.",
+
+    subheading: "Lo que mas nos preguntan antes de venir.",
+
     items: [
+
       {
-        question: "Como puedo empezar a usar la plantilla?",
+
+        question: "Que dias abren?",
+
         answer:
-          "Solo necesitas clonar el repositorio, instalar las dependencias con npm install y ejecutar npm run dev para verla en tu computadora.",
+
+          "Por ahora atendemos los domingos de 9:00 AM a 1:00 PM. Si agregamos mas dias, lo actualizaremos aqui en la pagina.",
+
       },
+
       {
-        question: "Necesito saber programar?",
+
+        question: "Tienen opcion picosa y no picosa?",
+
         answer:
-          "No necesariamente. Puedes personalizar textos, colores e imagenes sin tocar codigo complejo. Solo edita el archivo src/config/site.js.",
+
+          "Si. Tanto los chilaquiles verdes como los rojos los puedes pedir picosos o no picosos, segun tu gusto.",
+
       },
+
       {
-        question: "Puedo usar mi propio dominio?",
+
+        question: "Que proteinas puedo agregar?",
+
         answer:
-          "Si. Una vez que despliegues tu sitio en Vercel o cualquier otro hosting, puedes conectar tu dominio personalizado facilmente.",
+
+          "Puedes pedirlos sencillos o con pollo, huevo, chicharron prensado o barbacoa.",
+
       },
+
       {
-        question: "Que metodos de pago aceptan?",
+
+        question: "Puedo hacer pedidos por anticipado?",
+
         answer:
-          "Aceptamos tarjetas de credito y debito a traves de nuestra plataforma de pago segura.",
+
+          "Si. Escribenos por el formulario de contacto o llamanos y con gusto te tomamos la orden.",
+
       },
+
       {
-        question: "Ofrecen soporte tecnico?",
+
+        question: "Aceptan pagos con tarjeta?",
+
         answer:
-          "Si. Todos los planes incluyen soporte por email. Los planes Pro y Enterprise tienen soporte prioritario.",
+
+          "Consultanos directamente las formas de pago disponibles el dia de tu visita.",
+
       },
+
     ],
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // SECCION DE CONTACTO
+
   // ─────────────────────────────────────────────
+
   contact: {
+
     heading: "Contactanos",
+
     subheading:
-      "Envianos un mensaje y te responderemos lo antes posible.",
-    // URL para agendar una cita (Calendly o Google Calendar)
-    // Si no tienes, deja el valor vacio: ""
+
+      "Escribenos para pedidos, dudas o sugerencias. Te esperamos los domingos de 9 AM a 1 PM.",
+
     schedulingUrl: "",
+
     schedulingCta: "Agendar una llamada",
+
     form: {
+
       namePlaceholder: "Tu nombre",
+
       emailPlaceholder: "tu@email.com",
-      // Telefono es opcional. Cambia phoneRequired a true si quieres hacerlo obligatorio.
+
       phonePlaceholder: "Tu numero de telefono (opcional)",
+
       phoneRequired: false,
-      messagePlaceholder: "Escribe tu mensaje aqui...",
+
+      messagePlaceholder: "Ejemplo: quiero chilaquiles verdes con pollo, no picosos...",
+
       submitButton: "Enviar mensaje",
+
       sendingButton: "Enviando...",
+
       successMessage:
-        "Mensaje enviado correctamente. Revisa tu email.",
+
+        "Mensaje enviado correctamente. Te responderemos pronto.",
+
       errorMessage:
+
         "Hubo un error al enviar. Intentalo de nuevo.",
+
     },
-    // Datos de contacto opcionales para mostrar en el footer o sidebar
-    email: "hola@vibecoding.com",
+
+    email: "hola@loschilaquilesdelmeny.com",
+
     phone: "",
+
     address: "",
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // NAVEGACION
+
   // ─────────────────────────────────────────────
+
   nav: {
+
     links: [
-      { label: "Inicio", href: "#inicio" },
-      { label: "Features", href: "#features" },
-      { label: "Precios", href: "#precios" },
+
+      { label: "Inicio", href: "#hero" },
+
+      { label: "Nosotros", href: "#features" },
+
+      { label: "Menu", href: "#pricing" },
+
       { label: "FAQ", href: "#faq" },
-      { label: "Contacto", href: "#contacto" },
+
+      { label: "Contacto", href: "#contact" },
+
     ],
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // FOOTER
+
   // ─────────────────────────────────────────────
+
   footer: {
-    tagline: "Hecho con Next.js y mucho cafe.",
+
+    tagline: "Los favoritos, sabor casero en cada bocado.",
+
     links: [
-      { label: "Inicio", href: "#inicio" },
-      { label: "Features", href: "#features" },
-      { label: "Precios", href: "#precios" },
-      { label: "Contacto", href: "#contacto" },
+
+      { label: "Inicio", href: "#hero" },
+
+      { label: "Menu", href: "#pricing" },
+
+      { label: "FAQ", href: "#faq" },
+
+      { label: "Contacto", href: "#contact" },
+
     ],
+
     copyright: "Todos los derechos reservados.",
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // EMAIL (notificaciones automaticas al recibir un contacto)
+
   // ─────────────────────────────────────────────
+
   email: {
-    subject: "Recibimos tu mensaje",
-    teamSignature: "El equipo de VibeCoding",
-    // El remitente del email. Debe coincidir con tu dominio verificado en Resend.
+
+    subject: "Recibimos tu mensaje — Los Chilaquiles del Meny",
+
+    teamSignature: "Los Chilaquiles del Meny",
+
     from: "onboarding@resend.dev",
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // COLORES PRINCIPALES (referencia para personalizar globals.css)
+
   // ─────────────────────────────────────────────
-  // Estos valores son documentacion. Para cambiar colores en Tailwind v4,
-  // edita el archivo src/app/globals.css y modifica las variables CSS.
+
   colors: {
-    primary: "black",         // Color principal (botones, acentos)
-    secondary: "gray-900",    // Color de textos principales
-    accent: "sky-50",         // Fondos suaves y badges
-    accentText: "sky-500",    // Textos de acento (titulos, enlaces, iconos)
-    background: "white",      // Fondo general
+
+    primary: "salsa-700",
+
+    secondary: "stone-900",
+
+    accent: "crema-100",
+
+    accentText: "verde-600",
+
+    highlight: "salsa-600",
+
+    background: "crema-50",
+
   },
 
+
+
   // ─────────────────────────────────────────────
+
   // BOTON DE PAGO (PayPal)
-  // ─────────────────────────────────────────────
-  payment: {
-    // Cambia enabled a true cuando tengas tu cuenta de PayPal lista
-    enabled: true,
-    // Tu nombre de usuario de PayPal.me
-    // Para obtenerlo: ve a paypal.com > Perfil > Configura tu link PayPal.me
-    // Ejemplo: si tu link es paypal.me/juanperez, escribe "juanperez"
-    paypalMeUsername: "PGutierrezCarrera",
-    // Monto sugerido en dolares. Pon 0 para que el comprador elija cuanto pagar.
-    defaultAmount: 0,
-    currency: "USD",
-    buttonText: "Pagar con PayPal",
-  },
 
   // ─────────────────────────────────────────────
-  // METADATOS SEO (lo que aparece en Google y redes sociales)
-  // ─────────────────────────────────────────────
-  metadata: {
-    title: "VibeCoding - Tu plantilla para lanzar rapido",
-    description:
-      "La plantilla perfecta para lanzar tu idea al mundo. Rapido, moderno y listo para personalizar.",
+
+  payment: {
+
+    enabled: true,
+
+    paypalMeUsername: "PGutierrezCarrera",
+
+    defaultAmount: 0,
+
+    currency: "USD",
+
+    buttonText: "Pagar con PayPal",
+
   },
+
+
+
+  // ─────────────────────────────────────────────
+
+  // METADATOS SEO (lo que aparece en Google y redes sociales)
+
+  // ─────────────────────────────────────────────
+
+  metadata: {
+
+    title: "Los Chilaquiles del Meny — Sabor casero los domingos",
+
+    description:
+
+      "Chilaquiles verdes y rojos, picosos o suaves, con pollo, huevo, chicharron prensado y barbacoa. Domingos de 9 AM a 1 PM.",
+
+  },
+
 };
+
+

@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# VARIABLES DE ENTORNO — VibeCoding Plantilla
+# ─────────────────────────────────────────────────────────────────────────────
+# Instrucciones:
+#   1. Copia este archivo y renombra la copia a: .env.local
+#   2. Llena cada variable con tus propios valores.
+#   3. NUNCA subas .env.local a GitHub (ya esta en .gitignore).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── RESEND (servicio de envio de emails) ──────────────────────────────────────
+#
+# Donde conseguirlo:
+#   1. Crea una cuenta gratuita en https://resend.com
+#   2. En el menu lateral ve a "API Keys"
+#   3. Haz clic en "Create API Key", dale un nombre (ej. "vibecoding")
+#   4. Copia la clave que empieza con "re_..." y pegala abajo
+#
+# Plan gratuito: 3,000 emails/mes, no requiere tarjeta de credito.
+# Documentacion: https://resend.com/docs/introduction
+#
+RESEND_API_KEY=re_LPGofW7C_9fUWn5jD8tbkMgU9qAdr3gTi
+
+# Email desde el que se envian los mensajes automaticos.
+# En el plan gratuito de Resend puedes usar: onboarding@resend.dev
+# Si tienes un dominio propio verificado en Resend, usa: hola@tudominio.com
+# Documentacion para dominios: https://resend.com/docs/dashboard/domains/introduction
+#
+RESEND_FROM_EMAIL=onboarding@resend.dev
+
+
+# ── PANEL DE ADMINISTRACION ──────────────────────────────────────────────────
+#
+# Contrasena para entrar al panel en /admin
+# Pon cualquier contrasena que quieras. Ejemplo: MiClave2024!
+# Sin esto configurado, la pagina /admin mostrara instrucciones de como activarla.
+#
+ADMIN_PASSWORD=Chilas2026!
+
+
+# ── PAYPAL (pagos en linea) ───────────────────────────────────────────────────
+#
+# Solo necesario si usas la integracion avanzada con PayPal Checkout SDK.
+# Para el boton basico de PayPal.me NO necesitas este valor,
+# solo configura payment.paypalMeUsername en src/config/site.js.
+#
+# Como obtener el Client ID:
+#   1. Ve a https://developer.paypal.com/dashboard/applications
+#   2. Inicia sesion con tu cuenta de PayPal
+#   3. Haz clic en "Create App", dale un nombre y selecciona "Merchant"
+#   4. Copia el "Client ID" (el de Sandbox para pruebas, el de Live para produccion)
+#
+# Documentacion: https://developer.paypal.com/sdk/js/
+#
+NEXT_PUBLIC_PAYPAL_CLIENT_ID=
+
+
+# ── GOOGLE SHEETS (base de datos de leads) ────────────────────────────────────
+#
+# Necesitas crear una "Service Account" en Google Cloud. Pasos:
+#   1. Ve a https://console.cloud.google.com
+#   2. Crea un proyecto nuevo (o usa uno existente)
+#   3. En el menu busca "APIs y servicios" > "Biblioteca"
+#      Busca "Google Sheets API" y actívala
+#   4. Ve a "APIs y servicios" > "Credenciales"
+#   5. Haz clic en "Crear credenciales" > "Cuenta de servicio"
+#   6. Dale un nombre y completa el formulario
+#   7. En la lista de cuentas de servicio, haz clic en la que creaste
+#   8. Ve a la pestana "Claves" > "Agregar clave" > "Crear clave nueva" > JSON
+#   9. Se descargara un archivo .json con tus credenciales
+#
+# Documentacion: https://developers.google.com/sheets/api/quickstart/nodejs
+#
+
+# El email de la cuenta de servicio (lo encuentras en el archivo .json descargado,
+# campo "client_email"). Ejemplo: mi-proyecto@mi-proyecto-123456.iam.gserviceaccount.com
+#
+GOOGLE_SERVICE_ACCOUNT_EMAIL=mmma1390@norse-glow-498200-m3.iam.gserviceaccount.com
+
+# La clave privada de la cuenta de servicio (campo "private_key" en el .json).
+# IMPORTANTE: Copia todo el valor incluyendo -----BEGIN RSA PRIVATE KEY----- y -----END RSA PRIVATE KEY-----
+# Reemplaza cada salto de linea real por los dos caracteres \n (barra invertida + n)
+# Ejemplo del formato correcto:
+#   GOOGLE_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n"
+#
+GOOGLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDPCC3X6czvOk42\nc5TcfJ7CD40DVELHxspth7/v3lGXEzUOBoAfQ7DhMMdpXbWHVST6b27etGLDGyW5\nswcmWDk6CZDRAFUqAc9uZ6WdOeFLopeqAgSAqEZfG12YeR0PAcVOpNnHnJzan/la\nYwGJRRihLDI+iUKtaeXW5x9q9buGyEWSYbSA2MOn0PnggRXQYzsTgFqjny9Bofvw\nyAXxIUEvbLrBktuTm4Ixxj8G5cYogC4wZT2L9ChgyT8npBPhlFYezpUxa+t+mkvL\nr6FUQtzbwOrrFJK+v6yRtkm1t93ZQ6p9GO8cm8D074lBJi6RcsUmr7jfN8YIGUqt\nSiu1gyRHAgMBAAECggEANdRalxkjP9BZJa9HtUxxuuNwNr1h36/AUlpJfYTAkhdc\nZBkslvRyuRqFvs+us1FgG/19RkqAo1obpPz3jvDBcGWsUatUeWefF4W7efXirlfI\nN1vu78TRB0mGPG7BL3W2Z4xVU6FU50NRAj9b1uUwUje7mKb3vz8Zk5bkhFsANzrD\nNQX6PkbKHJPQBgEQrH4ydgk4M1c4r4pMlrif7g+ma/AMBIK4rKPmG+yvyvfR4xUQ\n2/UBFX2lPkw3if4R5J4cRdxwWXD6k2Tu+0cdVJbfo2M2fJAP6JTfYX8bcnlqsGzh\n/GkDAavmsMbmKWY7DTrdHmvDTbuEQWmke76nQDGWgQKBgQD6soRS6bLfzhzPxTfs\nMqPvxYga+GgvIoh/+rSaW/tY+Udz5GCbytZVpldcNUyliBFr43oXJayJJQiZtlFE\n/hdaXelRgc96TsVExQq9yXBO0X+geksKIu0qtXM42oCBo4BYnzaIY8BzYZ7MGpzg\n2iYHSjFS1cSaVYZTt23mfTxsJQKBgQDTaTi8JepkKQ8T2DRj0uMgNrfaw0LWrOBV\nPtTSmnFRUmmqEhkNUKJHOp/8qg/rlIy/KQO2d5sch7B0Eof+M8YLUXiFdeaoaFPo\n+dAG8SjJQjg/oIYKhaLLFErNxIxBYWXHB8juIihWhO3XG0r6vAS2wDyCf7t+btHa\nwWlTa1fs+wKBgC4txAIh2jkvlk8PXQW9LkV0dWXCbC6ChfJNFAd6+gmhoW/PmZwY\n+PI9+cmaZ8v2DH97H3o0DlwU3kiyNLYot9SFh/zjlHxLFjtcsGXVPULHhGLjI/9x\n/43mbpsCZLl8jJ/GdB0bgs++I6olHNCuXmLpX7yKc/SZ3Gx/VVcnqoGhAoGAGnlv\nyGf7HUXjBHorvWB4Xt1bUsLnCNknUqWGo0UB8cwfPVP83ST+3WqjBFILolW89mdd\ndqktvHnlh/OWIig7ock3DYeBNg+yildWTLhAgkuPnbAteP3ZMBM/dtspMTrQMwdv\nixqt8H+/BRP+5L1M3dHfAfya7y9TilB0LyUfIqcCgYA5dFJQx1cL1PfqWGKwIDep\nnpjXdHnA43h0zRNDngIXpoprDOf1OQj3FAdVIQTF8Du/60Tdl+HRu/R1bXHdfjpt\nuPedtcewKF8G4q7RkIAGDrbDLnmmpcgPg8JPy+3wCigc8BP/z4cqTzEvxAHZvSUj\ntz6yUmeB8KIG34zijazc6g==\n-----END PRIVATE KEY-----\n
+
+# El ID de tu hoja de calculo de Google Sheets.
+# Como obtenerlo:
+#   1. Abre tu Google Sheet en el navegador
+#   2. La URL tiene este formato:
+#      https://docs.google.com/spreadsheets/d/ESTE_ES_EL_ID/edit
+#   3. Copia solo la parte entre /d/ y /edit
+#
+# IMPORTANTE: Tambien debes compartir la hoja con tu cuenta de servicio:
+#   En Google Sheets haz clic en "Compartir" y agrega el email de GOOGLE_SERVICE_ACCOUNT_EMAIL
+#   con permisos de "Editor".
+#
+GOOGLE_SHEET_ID=1cSEIpZV1A9cEU6bdXyM8DMloF0HgETylF6SnMP48M8A

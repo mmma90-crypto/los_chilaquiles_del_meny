@@ -83,10 +83,10 @@ export default function ContactForm() {
     <section id="contact" className="py-20 px-6">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold text-stone-900 mb-4">
             {heading}
           </h2>
-          <p className="text-lg text-gray-600">
+          <p className="text-lg text-stone-600">
             {subheading}
           </p>
           {schedulingUrl && (
@@ -94,7 +94,7 @@ export default function ContactForm() {
               href={schedulingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block mt-4 px-6 py-2.5 border border-black text-black font-medium rounded-full hover:bg-gray-100 transition-colors text-sm"
+              className="inline-block mt-4 px-6 py-2.5 border border-salsa-700 text-salsa-800 font-medium rounded-full hover:bg-salsa-50 transition-colors text-sm"
             >
               {schedulingCta}
             </a>
@@ -104,11 +104,11 @@ export default function ContactForm() {
         <form
           onSubmit={handleSubmit}
           noValidate
-          className="bg-white border border-gray-200 rounded-2xl p-8 space-y-6"
+          className="bg-white border border-crema-200 rounded-2xl p-8 space-y-6 shadow-sm"
         >
           {/* Nombre */}
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-stone-700 mb-2">
               Nombre
             </label>
             <input
@@ -118,8 +118,8 @@ export default function ContactForm() {
               value={form.name}
               onChange={handleChange}
               placeholder={formConfig.namePlaceholder}
-              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent transition ${
-                errors.name ? "border-red-400 bg-red-50" : "border-gray-300"
+              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-salsa-600 focus:border-transparent transition ${
+                errors.name ? "border-red-400 bg-red-50" : "border-stone-300"
               }`}
             />
             {errors.name && (
@@ -129,7 +129,7 @@ export default function ContactForm() {
 
           {/* Email */}
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-stone-700 mb-2">
               Email
             </label>
             <input
@@ -139,8 +139,8 @@ export default function ContactForm() {
               value={form.email}
               onChange={handleChange}
               placeholder={formConfig.emailPlaceholder}
-              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent transition ${
-                errors.email ? "border-red-400 bg-red-50" : "border-gray-300"
+              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-salsa-600 focus:border-transparent transition ${
+                errors.email ? "border-red-400 bg-red-50" : "border-stone-300"
               }`}
             />
             {errors.email && (
@@ -150,10 +150,10 @@ export default function ContactForm() {
 
           {/* Telefono */}
           <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="phone" className="block text-sm font-medium text-stone-700 mb-2">
               Telefono
               {!formConfig.phoneRequired && (
-                <span className="ml-1.5 text-gray-400 font-normal">(opcional)</span>
+                <span className="ml-1.5 text-stone-400 font-normal">(opcional)</span>
               )}
             </label>
             <input
@@ -163,8 +163,8 @@ export default function ContactForm() {
               value={form.phone}
               onChange={handleChange}
               placeholder={formConfig.phonePlaceholder}
-              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent transition ${
-                errors.phone ? "border-red-400 bg-red-50" : "border-gray-300"
+              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-salsa-600 focus:border-transparent transition ${
+                errors.phone ? "border-red-400 bg-red-50" : "border-stone-300"
               }`}
             />
             {errors.phone && (
@@ -174,7 +174,7 @@ export default function ContactForm() {
 
           {/* Mensaje */}
           <div>
-            <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="message" className="block text-sm font-medium text-stone-700 mb-2">
               Mensaje
             </label>
             <textarea
@@ -184,8 +184,8 @@ export default function ContactForm() {
               value={form.message}
               onChange={handleChange}
               placeholder={formConfig.messagePlaceholder}
-              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-transparent transition resize-none ${
-                errors.message ? "border-red-400 bg-red-50" : "border-gray-300"
+              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-salsa-600 focus:border-transparent transition resize-none ${
+                errors.message ? "border-red-400 bg-red-50" : "border-stone-300"
               }`}
             />
             {errors.message && (
@@ -196,7 +196,7 @@ export default function ContactForm() {
           <button
             type="submit"
             disabled={status === "loading"}
-            className="w-full py-3.5 bg-black text-white font-medium rounded-full hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3.5 bg-salsa-700 text-white font-medium rounded-full hover:bg-salsa-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-salsa-700/20"
           >
             {status === "loading" ? formConfig.sendingButton : formConfig.submitButton}
           </button>

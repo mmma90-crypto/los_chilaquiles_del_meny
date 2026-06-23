@@ -2,4 +2,22 @@
 
 @theme inline {
   --font-sans: var(--font-geist-sans);
+
+  /* Paleta Los Chilaquiles del Meny */
+  --color-salsa-50: #fef2f2;
+  --color-salsa-100: #fee2e2;
+  --color-salsa-600: #dc2626;
+  --color-salsa-700: #b91c1c;
+  --color-salsa-800: #991b1b;
+  --color-verde-50: #f0fdf4;
+  --color-verde-600: #16a34a;
+  --color-verde-700: #15803d;
+  --color-crema-50: #fffbeb;
+  --color-crema-100: #fef3c7;
+  --color-crema-200: #fde68a;
+}
+
+body {
+  background-color: var(--color-crema-50);
+  color: #1c1917;
 }
