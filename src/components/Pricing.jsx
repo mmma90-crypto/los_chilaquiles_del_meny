@@ -5,6 +5,12 @@ import { menuConfig } from "@/config/menu";
 import { siteConfig } from "@/config/site";
 
 /* ─── helpers ─────────────────────────────────── */
+const PAY_METHOD_LABELS = {
+  efectivo: "Efectivo (al recibir)",
+  transferencia: "Transferencia (envío comprobante)",
+  tarjeta: "Tarjeta (PayPal)",
+};
+
 function formatPrice(amount) {
   return new Intl.NumberFormat(menuConfig.locale, {
     style: "currency",
@@ -311,6 +317,7 @@ export default function Pricing() {
   const [payMethod, setPayMethod] = useState(null); // efectivo | transferencia | tarjeta
   const [clabeCopied, setClabeCopied] = useState(false);
   const clabeTimer = useRef(null);
+  const [orderRowNumber, setOrderRowNumber] = useState(null);
 
   /* ── computed ── */
   const step1Complete = isStep1Complete(base, verdeSpice, rojoSpice);
@@ -433,6 +440,7 @@ export default function Pricing() {
 
     setSavedOrder({ ...orderSummary, customer: customerData });
     setPayMethod(null);
+    setOrderRowNumber(null);
     setStage("payment");
     setTimeout(() => {
       document.getElementById("order-form-top")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -456,17 +464,29 @@ export default function Pricing() {
         direccion: customerData.address,
         ubicacion: customerData.locationUrl,
       }),
-    }).catch((error) => console.error("No se pudo registrar el pedido:", error));
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.rowNumber) setOrderRowNumber(data.rowNumber);
+      })
+      .catch((error) => console.error("No se pudo registrar el pedido:", error));
+  }
+
+  function handleSelectPayMethod(method) {
+    setPayMethod(method);
+    if (!orderRowNumber) return;
+    const label = PAY_METHOD_LABELS[method] || method;
+    fetch("/api/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rowNumber: orderRowNumber, metodoPago: label }),
+    }).catch((error) => console.error("No se pudo actualizar el metodo de pago:", error));
   }
 
   function buildWhatsAppUrl(method) {
     if (!savedOrder) return "#";
     const c = savedOrder.customer;
-    const payLabels = {
-      efectivo: "Efectivo (al recibir)",
-      transferencia: "Transferencia (envío comprobante)",
-      tarjeta: "Tarjeta (PayPal)",
-    };
+    const payLabels = PAY_METHOD_LABELS;
     const msgLines = [
       "¡Hola! Quiero hacer un pedido 🌮🌶️",
       "",
@@ -956,7 +976,7 @@ export default function Pricing() {
                         key={o.k}
                         label={o.label}
                         selected={payMethod === o.k}
-                        onClick={() => setPayMethod(o.k)}
+                        onClick={() => handleSelectPayMethod(o.k)}
                       />
                     ))}
                   </div>

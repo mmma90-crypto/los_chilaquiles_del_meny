@@ -64,6 +64,7 @@ const ORDERS_HEADERS = [
   "Telefono",
   "Direccion",
   "Ubicacion",
+  "Metodo de pago",
 ];
 
 async function getOrdersSheet(doc) {
@@ -75,6 +76,15 @@ async function getOrdersSheet(doc) {
     });
   } else {
     await sheet.loadHeaderRow();
+    // Agrega columnas nuevas (ej. "Metodo de pago") si la pestaña ya
+    // existia de una version anterior sin borrar columnas que el
+    // usuario haya agregado a mano.
+    const missing = ORDERS_HEADERS.filter(
+      (label) => !sheet.headerValues.some((h) => h.toLowerCase() === label.toLowerCase())
+    );
+    if (missing.length > 0) {
+      await sheet.setHeaderRow([...sheet.headerValues, ...missing]);
+    }
   }
   return sheet;
 }
@@ -92,7 +102,7 @@ export async function addOrderToSheet({
   const doc = await getDoc();
   const sheet = await getOrdersSheet(doc);
   const h = (label) => matchHeader(sheet.headerValues, label);
-  await sheet.addRow({
+  const row = await sheet.addRow({
     [h("Fecha")]: new Date().toLocaleString("es-MX"),
     [h("Base")]: base || "",
     [h("Proteinas")]: proteinas || "",
@@ -103,4 +113,17 @@ export async function addOrderToSheet({
     [h("Direccion")]: direccion || "",
     [h("Ubicacion")]: ubicacion || "",
   });
+  return { rowNumber: row.rowNumber };
+}
+
+export async function updateOrderPaymentMethod(rowNumber, metodoPago) {
+  const doc = await getDoc();
+  const sheet = await getOrdersSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  const row = rows.find((r) => r.rowNumber === rowNumber);
+  if (!row) return false;
+  row.set(h("Metodo de pago"), metodoPago);
+  await row.save();
+  return true;
 }
