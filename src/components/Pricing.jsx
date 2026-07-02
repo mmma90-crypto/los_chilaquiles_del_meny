@@ -421,22 +421,42 @@ export default function Pricing() {
   function handleContinueToPayment() {
     const errs = validateCustomer();
     if (Object.keys(errs).length > 0) { setCustomerErrors(errs); return; }
-    setSavedOrder({
-      ...orderSummary,
-      customer: {
-        name: customerForm.name.trim(),
-        phone: customerForm.phone.trim(),
-        address: customerForm.address.trim(),
-        accessCode: customerForm.accessCode.trim(),
-        accessRef: customerForm.accessRef.trim(),
-        locationUrl,
-      },
-    });
+
+    const customerData = {
+      name: customerForm.name.trim(),
+      phone: customerForm.phone.trim(),
+      address: customerForm.address.trim(),
+      accessCode: customerForm.accessCode.trim(),
+      accessRef: customerForm.accessRef.trim(),
+      locationUrl,
+    };
+
+    setSavedOrder({ ...orderSummary, customer: customerData });
     setPayMethod(null);
     setStage("payment");
     setTimeout(() => {
       document.getElementById("order-form-top")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
+
+    // Registro en Google Sheets para estadisticas; no bloquea el flujo si falla
+    const baseLine = orderSummary.lines.find((l) => l.label === summary.baseLabel);
+    const proteinLines = orderSummary.lines.filter((l) => l.label === summary.proteinLabel);
+    const toppingsLine = orderSummary.lines.find((l) => l.label === summary.toppingsLabel);
+
+    fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base: baseLine?.value || "",
+        proteinas: proteinLines.map((l) => l.value).join(", "),
+        toppings: toppingsLine?.value || "",
+        total: orderSummary.total,
+        nombre: customerData.name,
+        telefono: customerData.phone,
+        direccion: customerData.address,
+        ubicacion: customerData.locationUrl,
+      }),
+    }).catch((error) => console.error("No se pudo registrar el pedido:", error));
   }
 
   function buildWhatsAppUrl(method) {
