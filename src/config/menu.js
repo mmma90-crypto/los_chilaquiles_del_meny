@@ -41,10 +41,8 @@ export const menuConfig = {
     protein: {
       number: 2,
       title: "Proteina",
-      badge: "Opcional — elige una",
-      noneLabel: "Sin proteina / sencillos",
+      badge: "Opcional — agrega las que quieras",
       options: [
-        { id: "sencillos", label: "Sin proteina / sencillos", price: 0 },
         { id: "huevo", label: "Huevo", price: 10 },
         { id: "pollo", label: "Pollo", price: 20 },
         { id: "chicharron", label: "Chicharron prensado", price: 30 },
@@ -61,19 +59,6 @@ export const menuConfig = {
         { id: "crema", label: "Crema" },
         { id: "cilantro", label: "Cilantro" },
         { id: "cebolla", label: "Cebolla" },
-      ],
-    },
-
-    extraProtein: {
-      number: 4,
-      title: "Extra de proteina",
-      badge: "Opcional — elige una",
-      noneLabel: "Sin extra",
-      options: [
-        { id: "huevo", label: "Huevo", price: 10 },
-        { id: "pollo", label: "Pollo", price: 20 },
-        { id: "chicharron", label: "Chicharron prensado", price: 30 },
-        { id: "barbacoa", label: "Barbacoa", price: 40 },
       ],
     },
   },
@@ -96,7 +81,6 @@ export const menuConfig = {
     baseLabel: "Base",
     proteinLabel: "Proteina",
     toppingsLabel: "Toppings",
-    extraProteinLabel: "Extra de proteina",
     noneSelected: "Ninguno",
   },
 

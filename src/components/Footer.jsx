@@ -1,33 +1,73 @@
 import { siteConfig } from "@/config/site";
 
 export default function Footer() {
-  const { name } = siteConfig;
-  const { tagline, links, copyright } = siteConfig.footer;
+  const { name, footer } = siteConfig;
 
   return (
-    <footer className="border-t border-crema-200 bg-white/60 py-12 px-6">
-      <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="text-center md:text-left">
-          <span className="text-lg font-bold text-stone-900">{name}</span>
-          <p className="text-sm text-stone-500 mt-1">{tagline}</p>
+    <footer style={{ background: "#2E1B10", color: "#E9D7BE" }}>
+      <div className="max-w-6xl mx-auto px-6 py-12 flex flex-wrap gap-6 items-center justify-between">
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: "50%",
+              background: "#D6452B",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#fff",
+              fontFamily: "'Baloo 2', sans-serif",
+              fontWeight: 800,
+              fontSize: 20,
+              flexShrink: 0,
+            }}
+          >
+            M
+          </div>
+          <div>
+            <div
+              style={{
+                fontFamily: "'Baloo 2', sans-serif",
+                fontWeight: 800,
+                fontSize: 18,
+                color: "#FFF6EA",
+              }}
+            >
+              {name}
+            </div>
+            <div style={{ fontSize: 13, color: "#B79A78" }}>{footer.tagline}</div>
+          </div>
         </div>
 
-        <ul className="flex items-center gap-6">
-          {links.map((link) => (
+        <ul style={{ display: "flex", gap: 22, flexWrap: "wrap", listStyle: "none", padding: 0, margin: 0 }}>
+          {footer.links.map((link) => (
             <li key={link.href}>
               <a
                 href={link.href}
-                className="text-sm text-stone-500 hover:text-verde-600 transition-colors"
+                style={{
+                  color: "#E9D7BE",
+                  textDecoration: "none",
+                  fontWeight: 700,
+                  fontSize: 15,
+                }}
               >
                 {link.label}
               </a>
             </li>
           ))}
         </ul>
-
-        <p className="text-sm text-stone-400">
-          &copy; {new Date().getFullYear()} {name}. {copyright}
-        </p>
+      </div>
+      <div
+        style={{
+          borderTop: "1px solid #4A3526",
+          textAlign: "center",
+          padding: "18px 24px",
+          fontSize: 13,
+          color: "#9C8265",
+        }}
+      >
+        © {new Date().getFullYear()} {name}. {footer.copyright}
       </div>
     </footer>
   );

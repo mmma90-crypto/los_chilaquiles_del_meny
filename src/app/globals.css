@@ -1,23 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap');
 @import "tailwindcss";
 
 @theme inline {
   --font-sans: var(--font-geist-sans);
+  --font-display: 'Baloo 2', var(--font-geist-sans);
+  --font-body: 'Nunito Sans', var(--font-geist-sans);
 
   /* Paleta Los Chilaquiles del Meny */
-  --color-salsa-50: #fef2f2;
+  --color-salsa-50:  #fef2f2;
   --color-salsa-100: #fee2e2;
+  --color-salsa-500: #D6452B;
   --color-salsa-600: #dc2626;
   --color-salsa-700: #b91c1c;
   --color-salsa-800: #991b1b;
-  --color-verde-50: #f0fdf4;
+
+  --color-verde-50:  #f0fdf4;
   --color-verde-600: #16a34a;
   --color-verde-700: #15803d;
-  --color-crema-50: #fffbeb;
-  --color-crema-100: #fef3c7;
-  --color-crema-200: #fde68a;
+  --color-verde-800: #5E8C3A;
+
+  --color-crema-50:  #fffbeb;
+  --color-crema-100: #FFF6EA;
+  --color-crema-200: #F7E9CF;
+  --color-crema-300: #EFE0C9;
+  --color-crema-400: #EAD9BF;
+
+  --color-meny-dark:   #2E1B10;
+  --color-meny-brown:  #6B5746;
+  --color-meny-tan:    #A8917A;
 }
 
 body {
-  background-color: var(--color-crema-50);
-  color: #1c1917;
+  background-color: var(--color-crema-100);
+  color: var(--color-meny-dark);
+  font-family: var(--font-body);
+}
+
+/* Animaciones de scroll */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity .75s ease, transform .8s cubic-bezier(.16,.84,.3,1);
+}
+[data-reveal][data-shown] {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] { transition: none; }
 }
