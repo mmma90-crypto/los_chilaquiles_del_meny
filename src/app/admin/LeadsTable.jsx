@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { logoutAction } from "./actions";
-import { siteConfig } from "@/config/site";
 
 export default function LeadsTable({ leads, error }) {
   const [search, setSearch] = useState("");
@@ -17,31 +15,7 @@ export default function LeadsTable({ leads, error }) {
   const lastLead = leads[leads.length - 1];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Encabezado */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-gray-900">
-              Panel de administracion
-            </h1>
-            <p className="text-sm text-gray-500">{siteConfig.name}</p>
-          </div>
-          <form action={logoutAction}>
-            <button
-              type="submit"
-              className="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              Cerrar sesion
-            </button>
-          </form>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-7xl mx-auto px-6 pb-12">
         {/* Tarjetas de resumen */}
         <div className="grid sm:grid-cols-3 gap-4 mb-8">
           <div className="bg-white border border-gray-200 rounded-2xl p-5">
@@ -188,7 +162,6 @@ export default function LeadsTable({ leads, error }) {
             )}
           </>
         )}
-      </main>
     </div>
   );
 }

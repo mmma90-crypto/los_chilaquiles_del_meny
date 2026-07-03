@@ -169,7 +169,7 @@ export const siteConfig = {
   // ─────────────────────────────────────────────
   payment: {
     enabled: true,
-    paypalMeUsername: "TU_USUARIO_PAYPAL", // ← CAMBIAR por tu usuario de PayPal.me
+    paypalMeUsername: "lochilaquilesdelmeny", // ← CAMBIAR por tu usuario de PayPal.me
     defaultAmount: 0,
     currency: "MXN",
     buttonText: "Pagar con PayPal",

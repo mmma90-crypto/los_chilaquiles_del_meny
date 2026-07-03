@@ -1,7 +1,13 @@
 import { cookies } from "next/headers";
-import { getLeads } from "@/libs/google-sheets";
+import {
+  getLeads,
+  getOrders,
+  getPurchases,
+  getCostAnalysis,
+  getFinancesSummary,
+} from "@/libs/google-sheets";
 import LoginForm from "./LoginForm";
-import LeadsTable from "./LeadsTable";
+import AdminTabs from "./AdminTabs";
 
 export const metadata = {
   title: "Admin",
@@ -31,6 +37,15 @@ export default async function AdminPage() {
     );
   }
 
+  // Cargar los pedidos desde Google Sheets
+  let orders = [];
+  let ordersError = null;
+  try {
+    orders = await getOrders();
+  } catch (e) {
+    ordersError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
   // Cargar los leads desde Google Sheets
   let leads = [];
   let error = null;
@@ -40,7 +55,49 @@ export default async function AdminPage() {
     error = e.message || "Error desconocido al conectar con Google Sheets.";
   }
 
-  return <LeadsTable leads={leads} error={error} />;
+  // Cargar las compras de insumos desde Google Sheets
+  let purchases = [];
+  let purchasesError = null;
+  try {
+    purchases = await getPurchases();
+  } catch (e) {
+    purchasesError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
+  // Cargar el analisis de costos (recetas + precios base + compras)
+  let costAnalysis = null;
+  let costAnalysisError = null;
+  try {
+    costAnalysis = await getCostAnalysis();
+  } catch (e) {
+    costAnalysisError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
+  // Cargar el resumen financiero mensual (ventas, insumos, gastos fijos, utilidad)
+  let finances = [];
+  let financesError = null;
+  try {
+    finances = await getFinancesSummary({});
+  } catch (e) {
+    financesError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
+  return (
+    <div style={{ backgroundColor: "#fafafa" }} className="min-h-screen">
+      <AdminTabs
+        orders={orders}
+        ordersError={ordersError}
+        purchases={purchases}
+        purchasesError={purchasesError}
+        costAnalysis={costAnalysis}
+        costAnalysisError={costAnalysisError}
+        finances={finances}
+        financesError={financesError}
+        leads={leads}
+        leadsError={error}
+      />
+    </div>
+  );
 }
 
 // Pagina que ve el alumno si no tiene ADMIN_PASSWORD en .env.local
