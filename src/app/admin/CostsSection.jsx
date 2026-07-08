@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { menuConfig } from "@/config/menu";
+import PlatillosSection from "./PlatillosSection";
 
 // Relaciona el "Nombre" de la receta de proteina (pestaña Recetas) con el
 // id de proteina del menu (src/config/menu.js), para poder leer su precio
@@ -48,7 +49,14 @@ function fuenteBadgeClass(fuente) {
   return "bg-gray-100 text-gray-500";
 }
 
-const emptyBlock = { salsas: [], proteinas: [], combinaciones: [], ingredientes: [] };
+const emptySueldo = { sueldoSemanal: 0, promedioPlatillosSemana: 0, costoPorPlatillo: 0 };
+const emptyBlock = {
+  salsas: [],
+  proteinas: [],
+  combinaciones: [],
+  ingredientes: [],
+  sueldo: emptySueldo,
+};
 const emptyAnalysis = { actual: emptyBlock, ultimos30dias: emptyBlock };
 
 const VIEWS = [
@@ -57,7 +65,12 @@ const VIEWS = [
   { id: "rangoPersonalizado", label: "Rango personalizado" },
 ];
 
-export default function CostsSection({ initialAnalysis, error }) {
+export default function CostsSection({
+  initialAnalysis,
+  error,
+  initialPlatillos,
+  platillosError,
+}) {
   const [analysis, setAnalysis] = useState(initialAnalysis || emptyAnalysis);
   const [view, setView] = useState("actual");
   const [desdeInput, setDesdeInput] = useState("");
@@ -236,6 +249,8 @@ export default function CostsSection({ initialAnalysis, error }) {
 
       {!error && !rangoPendiente && (
         <>
+          <PlatillosSection initialPlatillos={initialPlatillos} error={platillosError} />
+
           {/* Mis salsas */}
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Mis salsas</h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -373,6 +388,32 @@ export default function CostsSection({ initialAnalysis, error }) {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Mano de obra prorrateada */}
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Mano de obra (sueldo)</h3>
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-8">
+            <p className="text-sm text-gray-600">
+              Sueldo semanal:{" "}
+              <span className="font-semibold text-gray-900">
+                {formatCurrency(currentBlock.sueldo?.sueldoSemanal ?? 0)}
+              </span>
+              {" | "}
+              Promedio platillos/semana:{" "}
+              <span className="font-semibold text-gray-900">
+                {(currentBlock.sueldo?.promedioPlatillosSemana ?? 0).toFixed(1)}
+              </span>
+              {" | "}
+              Costo de mano de obra por platillo:{" "}
+              <span className="font-semibold" style={{ color: "#7f1d1d" }}>
+                {formatCurrency(currentBlock.sueldo?.costoPorPlatillo ?? 0)}
+              </span>
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Editable en la hoja &quot;ParametrosCosteo&quot; (columna Valor de
+              &quot;Sueldo semanal ayuda&quot;). El pago real sigue registrandose aparte como
+              Retiro.
+            </p>
           </div>
 
           {/* Precios de ingredientes */}

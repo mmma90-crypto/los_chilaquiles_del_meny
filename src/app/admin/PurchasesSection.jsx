@@ -1,15 +1,40 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-const UNIDADES = ["kg", "pieza", "litro", "paquete"];
+const UNIDADES = ["kg", "litro", "pieza", "paquete"];
+const CATEGORIAS_PRODUCTO = ["Insumo", "Proteina", "Empaque", "Operativo"];
+const NUEVO_PRODUCTO_VALUE = "__nuevo__";
+const FINANCIADO_POR_OPCIONES = ["Yo", "Papás Vanessa"];
+const PERIODOS_INSUMOS = [
+  { id: "mes", label: "Este mes" },
+  { id: "trimestre", label: "Últimos 3 meses" },
+  { id: "historico", label: "Todo el histórico" },
+];
+
+function toISODate(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 function todayInputValue() {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return toISODate(new Date());
+}
+
+// Convierte el periodo elegido (mes / trimestre / historico) en un rango
+// [desde, hasta] en formato "YYYY-MM-DD" que entiende /api/purchases.
+function getRangoPeriodoInsumos(periodo) {
+  const hoy = new Date();
+  if (periodo === "historico") return { desde: null, hasta: null };
+  const hasta = toISODate(hoy);
+  if (periodo === "mes") {
+    const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    return { desde: toISODate(desde), hasta };
+  }
+  const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1);
+  return { desde: toISODate(desde), hasta };
 }
 
 function formatCurrency(value) {
@@ -37,21 +62,124 @@ const initialForm = {
   producto: "",
   precioUnitario: "",
   cantidad: "",
-  unidad: "kg",
+  unidad: "",
   pagado: false,
+  financiadoPor: FINANCIADO_POR_OPCIONES[0],
+  reembolsado: false,
 };
 
-export default function PurchasesSection({ initialPurchases, error }) {
+const initialNewProductForm = {
+  nombre: "",
+  unidad: UNIDADES[0],
+  categoria: CATEGORIAS_PRODUCTO[0],
+};
+
+const initialDeudasValue = { yo: 0, papasVanessa: 0 };
+
+export default function PurchasesSection({ initialPurchases, initialDeudas, error }) {
   const [purchases, setPurchases] = useState(initialPurchases || []);
+  const [deudas, setDeudas] = useState(initialDeudas || initialDeudasValue);
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
   const [search, setSearch] = useState("");
+  const [reembolsandoRow, setReembolsandoRow] = useState(null);
 
-  const productSuggestions = useMemo(() => {
-    const names = new Set(purchases.map((p) => p.producto).filter(Boolean));
-    return Array.from(names);
-  }, [purchases]);
+  const [productos, setProductos] = useState([]);
+  const [showNewProductForm, setShowNewProductForm] = useState(false);
+  const [newProductForm, setNewProductForm] = useState(initialNewProductForm);
+  const [newProductSubmitting, setNewProductSubmitting] = useState(false);
+  const [newProductError, setNewProductError] = useState(null);
+
+  const [periodoInsumos, setPeriodoInsumos] = useState("mes");
+  const [topInsumos, setTopInsumos] = useState([]);
+  const [loadingTopInsumos, setLoadingTopInsumos] = useState(false);
+
+  useEffect(() => {
+    async function loadProductos() {
+      try {
+        const res = await fetch("/api/productos");
+        if (!res.ok) return;
+        const data = await res.json();
+        setProductos(data.productos || []);
+      } catch {
+        // Si falla la carga inicial, el select solo mostrara "+ Agregar producto nuevo".
+      }
+    }
+    loadProductos();
+  }, []);
+
+  useEffect(() => {
+    async function loadTopInsumos() {
+      setLoadingTopInsumos(true);
+      try {
+        const { desde, hasta } = getRangoPeriodoInsumos(periodoInsumos);
+        const params = new URLSearchParams();
+        if (desde) params.set("desde", desde);
+        if (hasta) params.set("hasta", hasta);
+        const qs = params.toString();
+        const res = await fetch(`/api/purchases${qs ? `?${qs}` : ""}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setTopInsumos(data.topInsumos || []);
+      } catch {
+        // Si falla, la seccion sigue mostrando el periodo anterior.
+      } finally {
+        setLoadingTopInsumos(false);
+      }
+    }
+    loadTopInsumos();
+  }, [periodoInsumos]);
+
+  function handleProductoChange(e) {
+    const value = e.target.value;
+    if (value === NUEVO_PRODUCTO_VALUE) {
+      setShowNewProductForm(true);
+      setNewProductError(null);
+      setForm({ ...form, producto: "", unidad: "" });
+      return;
+    }
+    setShowNewProductForm(false);
+    const producto = productos.find((p) => p.nombre === value);
+    setForm({ ...form, producto: value, unidad: producto?.unidad || "" });
+  }
+
+  // No es un <form> anidado: es un botón dentro del formulario de Compras, por
+  // eso se invoca desde onClick (type="button") en vez de un onSubmit propio.
+  async function handleAddNewProduct() {
+    setNewProductError(null);
+
+    if (!newProductForm.nombre.trim()) {
+      setNewProductError("Escribe el nombre del producto.");
+      return;
+    }
+
+    setNewProductSubmitting(true);
+    try {
+      const res = await fetch("/api/productos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newProductForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNewProductError(data.error || "No pudimos registrar el producto.");
+        return;
+      }
+
+      const productosRes = await fetch("/api/productos");
+      const productosData = await productosRes.json();
+      setProductos(productosData.productos || []);
+
+      setForm({ ...form, producto: data.producto.nombre, unidad: data.producto.unidad });
+      setShowNewProductForm(false);
+      setNewProductForm(initialNewProductForm);
+    } catch {
+      setNewProductError("No pudimos registrar el producto. Revisa tu conexion.");
+    } finally {
+      setNewProductSubmitting(false);
+    }
+  }
 
   const withDates = useMemo(
     () => purchases.map((p) => ({ ...p, parsedDate: parseFecha(p.fecha) })),
@@ -101,8 +229,26 @@ export default function PurchasesSection({ initialPurchases, error }) {
       if (!res.ok) return;
       const data = await res.json();
       setPurchases(data.purchases || []);
+      setDeudas(data.deudas || initialDeudasValue);
     } catch {
       // Si falla el refresco, la lista local sigue mostrando el estado anterior.
+    }
+  }
+
+  async function handleMarcarReembolsado(rowNumber) {
+    setReembolsandoRow(rowNumber);
+    try {
+      const res = await fetch("/api/purchases", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber, reembolsado: true }),
+      });
+      if (!res.ok) return;
+      await refreshPurchases();
+    } catch {
+      // Si falla, la fila sigue mostrando "No" y se puede reintentar.
+    } finally {
+      setReembolsandoRow(null);
     }
   }
 
@@ -111,7 +257,7 @@ export default function PurchasesSection({ initialPurchases, error }) {
     setFormError(null);
 
     if (!form.producto.trim() || !form.precioUnitario || !form.cantidad) {
-      setFormError("Completa producto, precio unitario y cantidad.");
+      setFormError("Selecciona un producto y completa precio unitario y cantidad.");
       return;
     }
 
@@ -164,19 +310,21 @@ export default function PurchasesSection({ initialPurchases, error }) {
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Producto
             </label>
-            <input
-              type="text"
-              list="producto-suggestions"
-              placeholder="Ej. Tortillas"
-              value={form.producto}
-              onChange={(e) => setForm({ ...form, producto: e.target.value })}
+            <select
+              value={showNewProductForm ? NUEVO_PRODUCTO_VALUE : form.producto}
+              onChange={handleProductoChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
-            />
-            <datalist id="producto-suggestions">
-              {productSuggestions.map((nombre) => (
-                <option key={nombre} value={nombre} />
+            >
+              <option value="" disabled>
+                Selecciona un producto
+              </option>
+              {productos.map((p) => (
+                <option key={p.nombre} value={p.nombre}>
+                  {p.nombre}
+                </option>
               ))}
-            </datalist>
+              <option value={NUEVO_PRODUCTO_VALUE}>+ Agregar producto nuevo</option>
+            </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -210,14 +358,27 @@ export default function PurchasesSection({ initialPurchases, error }) {
             <label className="block text-xs font-medium text-gray-600 mb-1">
               Unidad
             </label>
-            <select
+            <input
+              type="text"
               value={form.unidad}
-              onChange={(e) => setForm({ ...form, unidad: e.target.value })}
+              readOnly
+              disabled
+              placeholder="Elige un producto"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Financiado por
+            </label>
+            <select
+              value={form.financiadoPor}
+              onChange={(e) => setForm({ ...form, financiadoPor: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
             >
-              {UNIDADES.map((u) => (
-                <option key={u} value={u}>
-                  {u}
+              {FINANCIADO_POR_OPCIONES.map((f) => (
+                <option key={f} value={f}>
+                  {f}
                 </option>
               ))}
             </select>
@@ -233,8 +394,92 @@ export default function PurchasesSection({ initialPurchases, error }) {
               />
               Pagado
             </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 pb-2.5">
+              <input
+                type="checkbox"
+                checked={form.reembolsado}
+                onChange={(e) => setForm({ ...form, reembolsado: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300"
+                style={{ accentColor: "#7f1d1d" }}
+              />
+              Reembolsado
+            </label>
           </div>
         </div>
+
+        {showNewProductForm && (
+          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+            <p className="text-sm font-semibold text-gray-900 mb-3">
+              Agregar producto nuevo al catalogo
+            </p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Nombre nuevo
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. Aguacate"
+                  value={newProductForm.nombre}
+                  onChange={(e) =>
+                    setNewProductForm({ ...newProductForm, nombre: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Unidad
+                </label>
+                <select
+                  value={newProductForm.unidad}
+                  onChange={(e) =>
+                    setNewProductForm({ ...newProductForm, unidad: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+                >
+                  {UNIDADES.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Categoria
+                </label>
+                <select
+                  value={newProductForm.categoria}
+                  onChange={(e) =>
+                    setNewProductForm({ ...newProductForm, categoria: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+                >
+                  {CATEGORIAS_PRODUCTO.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={handleAddNewProduct}
+                  disabled={newProductSubmitting}
+                  className="w-full px-5 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-60 transition-opacity"
+                  style={{ backgroundColor: "#7f1d1d" }}
+                >
+                  {newProductSubmitting ? "Agregando..." : "Agregar y usar"}
+                </button>
+              </div>
+            </div>
+            {newProductError && (
+              <p className="text-sm text-red-700 mt-3">{newProductError}</p>
+            )}
+          </div>
+        )}
 
         {formError && (
           <p className="text-sm text-red-700 mt-3">{formError}</p>
@@ -274,7 +519,7 @@ export default function PurchasesSection({ initialPurchases, error }) {
       {!error && (
         <>
           {/* Tarjetas de resumen */}
-          <div className="grid sm:grid-cols-3 gap-4 mb-6">
+          <div className="grid sm:grid-cols-3 gap-4 mb-4">
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Total gastado este mes</p>
               <p className="text-3xl font-bold text-gray-900">
@@ -291,6 +536,104 @@ export default function PurchasesSection({ initialPurchases, error }) {
                 {productoTopMes || "—"}
               </p>
             </div>
+          </div>
+
+          {/* Tarjetas de deuda por reembolsar */}
+          <div className="grid sm:grid-cols-2 gap-4 mb-6">
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <p className="text-sm text-gray-500 mb-1">Le debo a mí mismo</p>
+              {deudas.yo > 0 ? (
+                <p className="text-3xl font-bold text-gray-900">
+                  {formatCurrency(deudas.yo)}
+                </p>
+              ) : (
+                <p className="text-3xl font-bold text-green-700">Al día ✓</p>
+              )}
+            </div>
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <p className="text-sm text-gray-500 mb-1">Le debo a Papás Vanessa</p>
+              {deudas.papasVanessa > 0 ? (
+                <p className="text-3xl font-bold text-gray-900">
+                  {formatCurrency(deudas.papasVanessa)}
+                </p>
+              ) : (
+                <p className="text-3xl font-bold text-green-700">Al día ✓</p>
+              )}
+            </div>
+          </div>
+
+          {/* Insumos con mayor impacto */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
+            <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700">
+                  Insumos con mayor impacto
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Que productos representan el mayor gasto del periodo.
+                </p>
+              </div>
+              <div className="inline-flex bg-gray-50 border border-gray-200 rounded-full p-1 gap-1">
+                {PERIODOS_INSUMOS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPeriodoInsumos(p.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      periodoInsumos === p.id
+                        ? "text-white"
+                        : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                    style={periodoInsumos === p.id ? { backgroundColor: "#7f1d1d" } : undefined}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {topInsumos.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">
+                {loadingTopInsumos
+                  ? "Cargando..."
+                  : "No hay compras con precio en este periodo."}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {topInsumos.map((item, i) => (
+                  <div key={item.producto} className="flex items-center gap-3">
+                    <span
+                      className="w-5 text-xs font-semibold text-center shrink-0"
+                      style={{ color: i < 3 ? "#7f1d1d" : "#9ca3af" }}
+                    >
+                      {i + 1}
+                    </span>
+                    <span
+                      className={`w-40 shrink-0 truncate text-sm ${
+                        i < 3 ? "font-semibold text-gray-900" : "text-gray-600"
+                      }`}
+                    >
+                      {item.producto}
+                    </span>
+                    <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.min(item.porcentaje, 100)}%`,
+                          backgroundColor: i < 3 ? "#7f1d1d" : "#d4a5a5",
+                        }}
+                      />
+                    </div>
+                    <span className="w-14 shrink-0 text-right text-sm text-gray-600">
+                      {item.porcentaje.toFixed(1)}%
+                    </span>
+                    <span className="w-24 shrink-0 text-right text-sm font-medium text-gray-900">
+                      {formatCurrency(item.total)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Buscador */}
@@ -364,6 +707,12 @@ export default function PurchasesSection({ initialPurchases, error }) {
                       <th className="text-left px-5 py-3.5 font-medium text-gray-600">
                         Pagado
                       </th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">
+                        Financiado por
+                      </th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">
+                        Reembolsado
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -397,6 +746,25 @@ export default function PurchasesSection({ initialPurchases, error }) {
                           >
                             {p.pagado ? "Pagado" : "Pendiente"}
                           </span>
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {p.financiadoPor || "—"}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          {p.reembolsado ? (
+                            <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                              Sí
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleMarcarReembolsado(p.rowNumber)}
+                              disabled={reembolsandoRow === p.rowNumber}
+                              className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 disabled:opacity-60 transition-colors"
+                            >
+                              {reembolsandoRow === p.rowNumber ? "Marcando..." : "No"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

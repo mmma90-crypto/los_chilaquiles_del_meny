@@ -6,6 +6,7 @@ import OrdersDashboard from "./OrdersDashboard";
 import PurchasesSection from "./PurchasesSection";
 import CostsSection from "./CostsSection";
 import FinancesSection from "./FinancesSection";
+import CashCountSection from "./CashCountSection";
 import LeadsTable from "./LeadsTable";
 
 const SECTIONS = [
@@ -13,6 +14,7 @@ const SECTIONS = [
   { id: "compras", label: "Compras" },
   { id: "costos", label: "Costos" },
   { id: "finanzas", label: "Finanzas" },
+  { id: "arqueo", label: "Arqueo" },
   { id: "leads", label: "Leads" },
 ];
 
@@ -20,11 +22,17 @@ export default function AdminTabs({
   orders,
   ordersError,
   purchases,
+  deudas,
   purchasesError,
   costAnalysis,
   costAnalysisError,
+  platillos,
+  platillosError,
   finances,
   financesError,
+  arqueos,
+  retiros,
+  cashCountError,
   leads,
   leadsError,
 }) {
@@ -68,15 +76,32 @@ export default function AdminTabs({
       {section === "pedidos" && <OrdersDashboard orders={orders} error={ordersError} />}
 
       {section === "compras" && (
-        <PurchasesSection initialPurchases={purchases} error={purchasesError} />
+        <PurchasesSection
+          initialPurchases={purchases}
+          initialDeudas={deudas}
+          error={purchasesError}
+        />
       )}
 
       {section === "costos" && (
-        <CostsSection initialAnalysis={costAnalysis} error={costAnalysisError} />
+        <CostsSection
+          initialAnalysis={costAnalysis}
+          error={costAnalysisError}
+          initialPlatillos={platillos}
+          platillosError={platillosError}
+        />
       )}
 
       {section === "finanzas" && (
         <FinancesSection initialFinances={finances} error={financesError} />
+      )}
+
+      {section === "arqueo" && (
+        <CashCountSection
+          initialArqueos={arqueos}
+          initialRetiros={retiros}
+          error={cashCountError}
+        />
       )}
 
       {section === "leads" && (

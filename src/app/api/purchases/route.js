@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { addPurchase, getPurchases } from "@/libs/google-sheets";
+import {
+  addPurchase,
+  getDeudas,
+  getPurchases,
+  getTopInsumos,
+  updatePurchaseReembolso,
+} from "@/libs/google-sheets";
 
 function makeToken(password) {
   return Buffer.from(password).toString("base64");
@@ -14,14 +20,20 @@ async function isAuthenticated() {
   return token === makeToken(adminPassword);
 }
 
-export async function GET() {
+export async function GET(request) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
   try {
+    const { searchParams } = new URL(request.url);
+    const desde = searchParams.get("desde") || undefined;
+    const hasta = searchParams.get("hasta") || undefined;
+
     const purchases = await getPurchases();
-    return NextResponse.json({ purchases });
+    const deudas = await getDeudas();
+    const topInsumos = await getTopInsumos({ desde, hasta });
+    return NextResponse.json({ purchases, deudas, topInsumos });
   } catch (error) {
     console.error("Error al leer las compras de Google Sheets:", error);
     return NextResponse.json(
@@ -62,6 +74,49 @@ export async function POST(request) {
     console.error("Error al guardar la compra en Google Sheets:", error);
     return NextResponse.json(
       { error: "No pudimos registrar la compra." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(request) {
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Los datos enviados no tienen el formato correcto." },
+      { status: 400 }
+    );
+  }
+
+  const { rowNumber, reembolsado } = body;
+
+  if (!rowNumber) {
+    return NextResponse.json(
+      { error: "Falta el numero de fila de la compra." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const updated = await updatePurchaseReembolso(rowNumber, reembolsado);
+    if (!updated) {
+      return NextResponse.json(
+        { error: "No encontramos esa compra." },
+        { status: 404 }
+      );
+    }
+    const deudas = await getDeudas();
+    return NextResponse.json({ success: true, deudas });
+  } catch (error) {
+    console.error("Error al actualizar el reembolso en Google Sheets:", error);
+    return NextResponse.json(
+      { error: "No pudimos actualizar el reembolso." },
       { status: 500 }
     );
   }

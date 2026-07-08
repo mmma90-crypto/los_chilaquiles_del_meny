@@ -156,6 +156,8 @@ const PURCHASES_HEADERS = [
   "Unidad",
   "Total",
   "Pagado",
+  "Financiado por",
+  "Reembolsado",
 ];
 
 async function getPurchasesSheet(doc) {
@@ -184,6 +186,8 @@ export async function addPurchase({
   cantidad,
   unidad,
   pagado,
+  financiadoPor,
+  reembolsado,
 }) {
   const doc = await getDoc();
   const sheet = await getPurchasesSheet(doc);
@@ -205,6 +209,8 @@ export async function addPurchase({
     [h("Unidad")]: unidad || "",
     [h("Total")]: total,
     [h("Pagado")]: pagado ? "Si" : "No",
+    [h("Financiado por")]: financiadoPor || "Yo",
+    [h("Reembolsado")]: reembolsado ? "Si" : "No",
   });
 
   return { rowNumber: row.rowNumber, total };
@@ -223,7 +229,131 @@ export async function getPurchases() {
     unidad: row.get(h("Unidad")) || "",
     total: row.get(h("Total")) || "",
     pagado: (row.get(h("Pagado")) || "").toLowerCase() === "si",
+    financiadoPor: row.get(h("Financiado por")) || "",
+    reembolsado: (row.get(h("Reembolsado")) || "").toLowerCase() === "si",
+    rowNumber: row.rowNumber,
   }));
+}
+
+// Marca (o desmarca) una compra existente como reembolsada, por numero de
+// fila (el mismo rowNumber que devuelve getPurchases()/addPurchase()).
+export async function updatePurchaseReembolso(rowNumber, reembolsado) {
+  const doc = await getDoc();
+  const sheet = await getPurchasesSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  const row = rows.find((r) => r.rowNumber === rowNumber);
+  if (!row) return false;
+  row.set(h("Reembolsado"), reembolsado ? "Si" : "No");
+  await row.save();
+  return true;
+}
+
+// Suma el Total de las compras aun no reembolsadas, agrupado por quien las
+// financio, para saber cuanto le debe el negocio a cada quien.
+export async function getDeudas() {
+  const purchases = await getPurchases();
+  const deudas = { yo: 0, papasVanessa: 0 };
+  purchases.forEach((p) => {
+    if (p.reembolsado) return;
+    const total = Number(p.total) || 0;
+    if (normalizeName(p.financiadoPor) === normalizeName("Papás Vanessa")) {
+      deudas.papasVanessa += total;
+    } else if (normalizeName(p.financiadoPor) === normalizeName("Yo")) {
+      deudas.yo += total;
+    }
+  });
+  return deudas;
+}
+
+// Agrupa las compras (con precio) por Producto dentro de [desde, hasta] (ambas
+// inclusive, formato "YYYY-MM-DD"). Sin rango, usa todo el historico. Devuelve
+// la lista ordenada de mayor a menor gasto, con el % sobre el gasto total del
+// periodo.
+export async function getTopInsumos({ desde, hasta } = {}) {
+  const purchases = await getPurchases();
+  const desdeRango = parseFechaISO(desde);
+  const hastaRango = parseFechaISO(hasta);
+
+  const totales = new Map();
+  let gastoTotalPeriodo = 0;
+
+  purchases.forEach((p) => {
+    const total = Number(p.total) || 0;
+    if (total <= 0) return; // ignora filas sin precio
+
+    const fecha = parseFechaCompra(p.fecha);
+    if (desdeRango && (!fecha || fecha < desdeRango)) return;
+    if (hastaRango && (!fecha || fecha > hastaRango)) return;
+
+    const producto = p.producto || "Sin especificar";
+    totales.set(producto, (totales.get(producto) || 0) + total);
+    gastoTotalPeriodo += total;
+  });
+
+  return Array.from(totales.entries())
+    .map(([producto, total]) => ({
+      producto,
+      total,
+      porcentaje: gastoTotalPeriodo > 0 ? (total / gastoTotalPeriodo) * 100 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+}
+
+const PRODUCTOS_SHEET_TITLE = "Productos";
+const PRODUCTOS_HEADERS = ["Nombre", "Unidad", "Categoria"];
+
+async function getProductosSheet(doc) {
+  let sheet = doc.sheetsByTitle[PRODUCTOS_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: PRODUCTOS_SHEET_TITLE,
+      headerValues: PRODUCTOS_HEADERS,
+    });
+  } else {
+    await sheet.loadHeaderRow();
+  }
+  return sheet;
+}
+
+export async function getProductos() {
+  const doc = await getDoc();
+  const sheet = await getProductosSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  return rows.map((row) => ({
+    nombre: row.get(h("Nombre")) || "",
+    unidad: row.get(h("Unidad")) || "",
+    categoria: row.get(h("Categoria")) || "",
+  }));
+}
+
+// Agrega un producto al catalogo solo si no existe ya uno con el mismo nombre
+// (comparando sin acentos/mayusculas/espacios via normalizeName), para que el
+// select de Compras no termine con el mismo insumo duplicado varias veces.
+export async function addProducto(nombre, unidad, categoria) {
+  const doc = await getDoc();
+  const sheet = await getProductosSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+
+  const rows = await sheet.getRows();
+  const key = normalizeName(nombre);
+  const existente = rows.find((row) => normalizeName(row.get(h("Nombre"))) === key);
+  if (existente) {
+    return {
+      nombre: existente.get(h("Nombre")) || "",
+      unidad: existente.get(h("Unidad")) || "",
+      categoria: existente.get(h("Categoria")) || "",
+    };
+  }
+
+  await sheet.addRow({
+    [h("Nombre")]: nombre || "",
+    [h("Unidad")]: unidad || "",
+    [h("Categoria")]: categoria || "",
+  });
+
+  return { nombre: nombre || "", unidad: unidad || "", categoria: categoria || "" };
 }
 
 const RECIPES_SHEET_TITLE = "Recetas";
@@ -309,6 +439,43 @@ const PRICES_SEED_ROWS = [
   ["Chipotle", 26, "pieza"],
   ["Sal", 20, "kg"],
 ];
+
+const PARAMETROS_COSTEO_SHEET_TITLE = "ParametrosCosteo";
+const PARAMETROS_COSTEO_HEADERS = ["Concepto", "Valor"];
+const PARAMETROS_COSTEO_SEED_ROWS = [["Sueldo semanal ayuda", 100]];
+
+async function getParametrosCosteoSheet(doc) {
+  let sheet = doc.sheetsByTitle[PARAMETROS_COSTEO_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: PARAMETROS_COSTEO_SHEET_TITLE,
+      headerValues: PARAMETROS_COSTEO_HEADERS,
+    });
+    await sheet.addRows(
+      PARAMETROS_COSTEO_SEED_ROWS.map(([concepto, valor]) => ({
+        Concepto: concepto,
+        Valor: valor,
+      }))
+    );
+  } else {
+    await sheet.loadHeaderRow();
+  }
+  return sheet;
+}
+
+// Parametros usados SOLO para prorratear costos en el costeo de platillos
+// (getCostAnalysis). No se deben sumar en getFinancesSummary ni en gastos
+// fijos mensuales: el pago real del sueldo sigue siendo un Retiro aparte.
+export async function getParametrosCosteo() {
+  const doc = await getDoc();
+  const sheet = await getParametrosCosteoSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  return rows.map((row) => ({
+    concepto: row.get(h("Concepto")) || "",
+    valor: Number(row.get(h("Valor"))) || 0,
+  }));
+}
 
 async function getRecipesSheet(doc) {
   let sheet = doc.sheetsByTitle[RECIPES_SHEET_TITLE];
@@ -427,6 +594,68 @@ function getWeightedPrice(producto, compras, desde, hasta) {
   return sumaCantidadPorPrecio / sumaCantidad;
 }
 
+// Inicio de semana (lunes) de una fecha, para agrupar ventas de platillos
+// por semana al prorratear el sueldo.
+function getWeekStart(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
+// Platillos vendidos por fecha: usa VentasPorPlatillo (suma de Pollo+
+// Chicharron+Huevo+Barbacoa+Sencillo) si tiene filas con fecha valida; si no,
+// cae a contar 1 platillo por cada Pedido guardado.
+async function getPlatillosVendidosPorFecha() {
+  const ventas = await getVentasPorPlatillo();
+  const ventasConFecha = ventas
+    .map((v) => ({
+      fecha: parseFechaCompra(v.fecha),
+      cantidad: v.pollo + v.chicharron + v.huevo + v.barbacoa + v.sencillo,
+    }))
+    .filter((v) => v.fecha);
+  if (ventasConFecha.length > 0) return ventasConFecha;
+
+  const orders = await getOrders();
+  return orders
+    .map((o) => ({ fecha: parseFechaCompra(o.fecha), cantidad: 1 }))
+    .filter((o) => o.fecha);
+}
+
+// Promedio de platillos vendidos por semana, usando las ultimas `numSemanas`
+// semanas (lunes a domingo) que tengan al menos una venta registrada.
+function avgPlatillosUltimasSemanasConDatos(ventasPorFecha, numSemanas) {
+  const porSemana = new Map();
+  ventasPorFecha.forEach(({ fecha, cantidad }) => {
+    const key = getWeekStart(fecha).getTime();
+    porSemana.set(key, (porSemana.get(key) || 0) + cantidad);
+  });
+  const semanas = Array.from(porSemana.keys())
+    .sort((a, b) => b - a)
+    .slice(0, numSemanas);
+  if (semanas.length === 0) return 0;
+  const total = semanas.reduce((sum, key) => sum + porSemana.get(key), 0);
+  return total / semanas.length;
+}
+
+// Promedio de platillos vendidos por semana dentro de [desde, hasta] (ambas
+// inclusive), usando el numero real de dias del rango entre 7.
+function avgPlatillosEnRango(ventasPorFecha, desde, hasta) {
+  const total = ventasPorFecha
+    .filter(({ fecha }) => fecha >= desde && fecha <= hasta)
+    .reduce((sum, v) => sum + v.cantidad, 0);
+  const dias = Math.max(1, Math.round((hasta - desde) / 86400000) + 1);
+  return total / (dias / 7);
+}
+
+function buildSueldoInfo(sueldoSemanal, promedioPlatillosSemana) {
+  const costoPorPlatillo =
+    sueldoSemanal > 0 && promedioPlatillosSemana > 0
+      ? sueldoSemanal / promedioPlatillosSemana
+      : 0;
+  return { sueldoSemanal, promedioPlatillosSemana, costoPorPlatillo };
+}
+
 export async function getCostAnalysis({ desde, hasta } = {}) {
   const doc = await getDoc();
 
@@ -493,7 +722,9 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
 
   // Calcula salsas/proteinas/platillos/combinaciones con una fuente de precio
   // dada (getIngredientPrice), para no repetir la logica por cada bloque.
-  function buildBlock(getIngredientPrice) {
+  // sueldoInfo trae el costo de mano de obra por platillo ya prorrateado
+  // (independiente por vista: actual / ultimos30dias / rangoPersonalizado).
+  function buildBlock(getIngredientPrice, sueldoInfo) {
     const ingredientesUsados = new Map();
     function trackIngredient(nombre, unidad) {
       const key = normalizeName(nombre);
@@ -534,6 +765,11 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
           salsaLitros = ing.cantidad;
           return;
         }
+        if (normalizeName(ing.ingrediente) === "sueldo") {
+          // El costo de mano de obra ya no sale de Recetas/PreciosBase: se
+          // prorratea aparte (sueldoInfo.costoPorPlatillo) mas abajo.
+          return;
+        }
         const { precio } = getIngredientPrice(ing.ingrediente);
         trackIngredient(ing.ingrediente, ing.unidad);
         costoComun += precio * ing.cantidad;
@@ -542,7 +778,7 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
         nombre: group.nombre,
         porSalsa: salsas.map((s) => ({
           salsa: s.nombre,
-          costoBase: costoComun + salsaLitros * s.costoPorLitro,
+          costoBase: costoComun + salsaLitros * s.costoPorLitro + sueldoInfo.costoPorPlatillo,
         })),
       });
     });
@@ -574,6 +810,7 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
       proteinas,
       combinaciones,
       ingredientes: Array.from(ingredientesUsados.values()),
+      sueldo: sueldoInfo,
     };
   }
 
@@ -582,15 +819,42 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
   const hace30Dias = new Date(hoyMedianoche);
   hace30Dias.setDate(hace30Dias.getDate() - 30);
 
+  const [parametrosCosteo, ventasPorFecha] = await Promise.all([
+    getParametrosCosteo(),
+    getPlatillosVendidosPorFecha(),
+  ]);
+  const sueldoSemanal =
+    parametrosCosteo.find(
+      (p) => normalizeName(p.concepto) === normalizeName("Sueldo semanal ayuda")
+    )?.valor || 0;
+
   const resultado = {
-    actual: buildBlock(getIngredientPriceActual),
-    ultimos30dias: buildBlock(makeWeightedPriceResolver(hace30Dias, hoyMedianoche)),
+    actual: buildBlock(
+      getIngredientPriceActual,
+      buildSueldoInfo(
+        sueldoSemanal,
+        avgPlatillosUltimasSemanasConDatos(ventasPorFecha, 4)
+      )
+    ),
+    ultimos30dias: buildBlock(
+      makeWeightedPriceResolver(hace30Dias, hoyMedianoche),
+      buildSueldoInfo(
+        sueldoSemanal,
+        avgPlatillosEnRango(ventasPorFecha, hace30Dias, hoyMedianoche)
+      )
+    ),
   };
 
   const desdeRango = parseFechaISO(desde);
   const hastaRango = parseFechaISO(hasta);
   if (desdeRango && hastaRango) {
-    resultado.rangoPersonalizado = buildBlock(makeWeightedPriceResolver(desdeRango, hastaRango));
+    resultado.rangoPersonalizado = buildBlock(
+      makeWeightedPriceResolver(desdeRango, hastaRango),
+      buildSueldoInfo(
+        sueldoSemanal,
+        avgPlatillosEnRango(ventasPorFecha, desdeRango, hastaRango)
+      )
+    );
   }
 
   return resultado;
@@ -599,8 +863,7 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
 const FIXED_COSTS_SHEET_TITLE = "GastosFijos";
 const FIXED_COSTS_HEADERS = ["Concepto", "Monto mensual"];
 const FIXED_COSTS_SEED_ROWS = [
-  ["Sueldo Vanessa", 600],
-  ["Gas", 200],
+  ["Gas", 0],
 ];
 
 async function getFixedCostsSheet(doc) {
@@ -682,16 +945,18 @@ export async function addManualSale({ fecha, concepto, monto, metodoPago }) {
 }
 
 // Resumen financiero mensual del año dado (por defecto, el actual). Combina
-// ventas de la pagina (Pedidos), ventas manuales, gasto en insumos (Compras)
-// y gastos fijos (GastosFijos) para calcular la utilidad neta por mes.
+// ventas de la pagina (Pedidos), ventas manuales, gasto en insumos (Compras),
+// gastos fijos (GastosFijos) y retiros/gastos (Retiros) para calcular la
+// utilidad neta por mes.
 export async function getFinancesSummary({ year } = {}) {
   const targetYear = Number(year) || new Date().getFullYear();
 
-  const [orders, manualSales, purchases, fixedCosts] = await Promise.all([
+  const [orders, manualSales, purchases, fixedCosts, retiros] = await Promise.all([
     getOrders(),
     getManualSales(),
     getPurchases(),
     getFixedCosts(),
+    getRetiros(),
   ]);
 
   const gastosFijosMensual = fixedCosts.reduce(
@@ -704,6 +969,7 @@ export async function getFinancesSummary({ year } = {}) {
     ventasPagina: 0,
     ventasManuales: 0,
     gastoInsumos: 0,
+    gastoRetiros: 0,
     porFecha: new Map(),
   }));
 
@@ -748,9 +1014,20 @@ export async function getFinancesSummary({ year } = {}) {
     meses[fecha.getMonth()].gastoInsumos += Number(p.total) || 0;
   });
 
+  // Los retiros de categoria "Reembolso insumos" no se restan aqui: ese costo
+  // ya esta contado en gastoInsumos (Compras). El resto de retiros (sueldo,
+  // renta, gas, personal, otro) si son gasto real del negocio.
+  retiros.forEach((r) => {
+    if (normalizeName(r.categoria) === normalizeName("Reembolso insumos")) return;
+    const fecha = parseFechaCompra(r.fecha);
+    if (!fecha || fecha.getFullYear() !== targetYear) return;
+    meses[fecha.getMonth()].gastoRetiros += Number(r.monto) || 0;
+  });
+
   return meses.map((m) => {
     const ventasTotales = m.ventasPagina + m.ventasManuales;
-    const utilidadNeta = ventasTotales - m.gastoInsumos - gastosFijosMensual;
+    const utilidadNeta =
+      ventasTotales - m.gastoInsumos - gastosFijosMensual - m.gastoRetiros;
     const margenNeto = ventasTotales > 0 ? (utilidadNeta / ventasTotales) * 100 : 0;
 
     const ventasPorFecha = Array.from(m.porFecha.values())
@@ -778,10 +1055,292 @@ export async function getFinancesSummary({ year } = {}) {
       ventasTotales,
       gastoInsumos: m.gastoInsumos,
       gastosFijos: gastosFijosMensual,
+      gastoRetiros: m.gastoRetiros,
       utilidadNeta,
       margenNeto,
       ventasPorFecha,
       totalesPorMetodo,
     };
   });
+}
+
+const RETIROS_SHEET_TITLE = "Retiros";
+const RETIROS_HEADERS = ["Fecha", "Concepto", "Categoria", "Monto", "De donde"];
+
+async function getRetirosSheet(doc) {
+  let sheet = doc.sheetsByTitle[RETIROS_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: RETIROS_SHEET_TITLE,
+      headerValues: RETIROS_HEADERS,
+    });
+  } else {
+    await sheet.loadHeaderRow();
+  }
+  return sheet;
+}
+
+export async function getRetiros() {
+  const doc = await getDoc();
+  const sheet = await getRetirosSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  return rows.map((row) => ({
+    fecha: row.get(h("Fecha")) || "",
+    concepto: row.get(h("Concepto")) || "",
+    categoria: row.get(h("Categoria")) || "",
+    monto: Number(row.get(h("Monto"))) || 0,
+    deDonde: row.get(h("De donde")) || "",
+  }));
+}
+
+export async function addRetiro({ fecha, concepto, categoria, monto, deDonde }) {
+  const doc = await getDoc();
+  const sheet = await getRetirosSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+
+  const fechaFormateada = fecha
+    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
+    : new Date().toLocaleDateString("es-MX");
+
+  const row = await sheet.addRow({
+    [h("Fecha")]: fechaFormateada,
+    [h("Concepto")]: concepto || "",
+    [h("Categoria")]: categoria || "Otro",
+    [h("Monto")]: Number(monto) || 0,
+    [h("De donde")]: deDonde || "Efectivo",
+  });
+
+  return { rowNumber: row.rowNumber };
+}
+
+const ARQUEOS_SHEET_TITLE = "Arqueos";
+const ARQUEOS_HEADERS = ["Fecha", "Efectivo contado", "Cuenta contado"];
+
+async function getArqueosSheet(doc) {
+  let sheet = doc.sheetsByTitle[ARQUEOS_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: ARQUEOS_SHEET_TITLE,
+      headerValues: ARQUEOS_HEADERS,
+    });
+  } else {
+    await sheet.loadHeaderRow();
+  }
+  return sheet;
+}
+
+export async function getArqueos() {
+  const doc = await getDoc();
+  const sheet = await getArqueosSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  return rows.map((row) => ({
+    fecha: row.get(h("Fecha")) || "",
+    efectivoContado: Number(row.get(h("Efectivo contado"))) || 0,
+    cuentaContado: Number(row.get(h("Cuenta contado"))) || 0,
+  }));
+}
+
+export async function addArqueo({ fecha, efectivoContado, cuentaContado }) {
+  const doc = await getDoc();
+  const sheet = await getArqueosSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+
+  const fechaFormateada = fecha
+    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
+    : new Date().toLocaleDateString("es-MX");
+
+  const row = await sheet.addRow({
+    [h("Fecha")]: fechaFormateada,
+    [h("Efectivo contado")]: Number(efectivoContado) || 0,
+    [h("Cuenta contado")]: Number(cuentaContado) || 0,
+  });
+
+  return { rowNumber: row.rowNumber };
+}
+
+// Calcula el saldo esperado de efectivo y cuenta a la fecha `hasta`, partiendo
+// del arqueo anterior mas reciente (su conteo real, no un teorico en cero) y
+// sumando ventas / restando retiros ocurridos desde ese arqueo hasta esa
+// fecha (inclusive). Los retiros de "Reembolso insumos" SI se restan aqui
+// (mueven caja/cuenta realmente), a diferencia de getFinancesSummary donde se
+// excluyen de la utilidad neta para no contar el costo dos veces.
+function computeExpectedCash(hasta, { orders, manualSales, retiros, arqueos }) {
+  let arqueoAnterior = null;
+  arqueos.forEach((a) => {
+    const fechaArqueo = parseFechaCompra(a.fecha);
+    if (!fechaArqueo || fechaArqueo >= hasta) return;
+    if (!arqueoAnterior || fechaArqueo > arqueoAnterior.fecha) {
+      arqueoAnterior = {
+        fecha: fechaArqueo,
+        efectivoContado: a.efectivoContado,
+        cuentaContado: a.cuentaContado,
+      };
+    }
+  });
+
+  const desde = arqueoAnterior ? arqueoAnterior.fecha : null;
+  let efectivoEsperado = arqueoAnterior ? arqueoAnterior.efectivoContado : 0;
+  let cuentaEsperado = arqueoAnterior ? arqueoAnterior.cuentaContado : 0;
+
+  function enRango(fechaValor) {
+    const f = parseFechaCompra(fechaValor);
+    if (!f) return false;
+    if (desde && f <= desde) return false;
+    if (f > hasta) return false;
+    return true;
+  }
+
+  orders.forEach((o) => {
+    if (!enRango(o.fecha)) return;
+    const monto = Number(o.total) || 0;
+    if (classifyMetodoPago(o.metodoPago) === "efectivo") efectivoEsperado += monto;
+    else cuentaEsperado += monto;
+  });
+
+  manualSales.forEach((v) => {
+    if (!enRango(v.fecha)) return;
+    const monto = Number(v.monto) || 0;
+    if (classifyMetodoPago(v.metodoPago) === "efectivo") efectivoEsperado += monto;
+    else cuentaEsperado += monto;
+  });
+
+  retiros.forEach((r) => {
+    if (!enRango(r.fecha)) return;
+    const monto = Number(r.monto) || 0;
+    if (normalizeName(r.deDonde) === "efectivo") efectivoEsperado -= monto;
+    else cuentaEsperado -= monto;
+  });
+
+  return {
+    efectivoEsperado,
+    cuentaEsperado,
+    desde: desde ? desde.toISOString() : null,
+    hasta: hasta.toISOString(),
+  };
+}
+
+export async function getExpectedCash(fecha) {
+  const hasta = parseFechaISO(fecha) || new Date();
+  const [orders, manualSales, retiros, arqueos] = await Promise.all([
+    getOrders(),
+    getManualSales(),
+    getRetiros(),
+    getArqueos(),
+  ]);
+  return computeExpectedCash(hasta, { orders, manualSales, retiros, arqueos });
+}
+
+// Arqueos ya acompañados del saldo esperado (efectivo/cuenta) calculado al
+// momento de cada uno, para que el panel muestre la comparacion esperado vs
+// contado por fila sin tener que pedir /api/cashcount una vez por fila.
+export async function getArqueosWithComparison() {
+  const [orders, manualSales, retiros, arqueos] = await Promise.all([
+    getOrders(),
+    getManualSales(),
+    getRetiros(),
+    getArqueos(),
+  ]);
+
+  return arqueos
+    .map((a) => ({ ...a, fechaParsed: parseFechaCompra(a.fecha) }))
+    .sort((a, b) => (a.fechaParsed?.getTime() || 0) - (b.fechaParsed?.getTime() || 0))
+    .map((a) => {
+      const hasta = a.fechaParsed || new Date();
+      const esperado = computeExpectedCash(hasta, {
+        orders,
+        manualSales,
+        retiros,
+        arqueos,
+      });
+      return {
+        fecha: a.fecha,
+        efectivoContado: a.efectivoContado,
+        cuentaContado: a.cuentaContado,
+        efectivoEsperado: esperado.efectivoEsperado,
+        cuentaEsperado: esperado.cuentaEsperado,
+      };
+    });
+}
+
+const VENTAS_PLATILLO_SHEET_TITLE = "VentasPorPlatillo";
+const VENTAS_PLATILLO_HEADERS = [
+  "Fecha",
+  "Pollo",
+  "Chicharron",
+  "Huevo",
+  "Barbacoa",
+  "Sencillo",
+  "Extra huevo",
+  "Extra salsa",
+  "Extra prensado",
+  "Extra pollo",
+];
+
+async function getVentasPorPlatilloSheet(doc) {
+  let sheet = doc.sheetsByTitle[VENTAS_PLATILLO_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: VENTAS_PLATILLO_SHEET_TITLE,
+      headerValues: VENTAS_PLATILLO_HEADERS,
+    });
+  } else {
+    await sheet.loadHeaderRow();
+  }
+  return sheet;
+}
+
+export async function getVentasPorPlatillo() {
+  const doc = await getDoc();
+  const sheet = await getVentasPorPlatilloSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  return rows.map((row) => ({
+    fecha: row.get(h("Fecha")) || "",
+    pollo: Number(row.get(h("Pollo"))) || 0,
+    chicharron: Number(row.get(h("Chicharron"))) || 0,
+    huevo: Number(row.get(h("Huevo"))) || 0,
+    barbacoa: Number(row.get(h("Barbacoa"))) || 0,
+    sencillo: Number(row.get(h("Sencillo"))) || 0,
+    extraHuevo: Number(row.get(h("Extra huevo"))) || 0,
+    extraSalsa: Number(row.get(h("Extra salsa"))) || 0,
+    extraPrensado: Number(row.get(h("Extra prensado"))) || 0,
+    extraPollo: Number(row.get(h("Extra pollo"))) || 0,
+  }));
+}
+
+const PLATILLOS_CATEGORIAS = [
+  { key: "pollo", label: "Pollo" },
+  { key: "chicharron", label: "Chicharron" },
+  { key: "huevo", label: "Huevo" },
+  { key: "barbacoa", label: "Barbacoa" },
+  { key: "sencillo", label: "Sencillo" },
+  { key: "extraHuevo", label: "Extra huevo" },
+  { key: "extraSalsa", label: "Extra salsa" },
+  { key: "extraPrensado", label: "Extra prensado" },
+  { key: "extraPollo", label: "Extra pollo" },
+];
+
+// Suma el historico completo de VentasPorPlatillo columna por columna y
+// calcula el % de cada una sobre el total de piezas vendidas (todas las
+// columnas juntas), ordenado de mayor a menor.
+export async function getPlatillosSummary() {
+  const ventas = await getVentasPorPlatillo();
+
+  const totales = PLATILLOS_CATEGORIAS.map(({ key, label }) => ({
+    categoria: label,
+    total: ventas.reduce((sum, v) => sum + (Number(v[key]) || 0), 0),
+  }));
+
+  const totalGeneral = totales.reduce((sum, t) => sum + t.total, 0);
+
+  const platillos = totales
+    .map((t) => ({
+      ...t,
+      porcentaje: totalGeneral > 0 ? (t.total / totalGeneral) * 100 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  return { platillos, totalGeneral };
 }

@@ -3,8 +3,12 @@ import {
   getLeads,
   getOrders,
   getPurchases,
+  getDeudas,
   getCostAnalysis,
+  getPlatillosSummary,
   getFinancesSummary,
+  getArqueosWithComparison,
+  getRetiros,
 } from "@/libs/google-sheets";
 import LoginForm from "./LoginForm";
 import AdminTabs from "./AdminTabs";
@@ -55,11 +59,13 @@ export default async function AdminPage() {
     error = e.message || "Error desconocido al conectar con Google Sheets.";
   }
 
-  // Cargar las compras de insumos desde Google Sheets
+  // Cargar las compras de insumos y las deudas por reembolsar desde Google Sheets
   let purchases = [];
+  let deudas = { yo: 0, papasVanessa: 0 };
   let purchasesError = null;
   try {
     purchases = await getPurchases();
+    deudas = await getDeudas();
   } catch (e) {
     purchasesError = e.message || "Error desconocido al conectar con Google Sheets.";
   }
@@ -73,6 +79,16 @@ export default async function AdminPage() {
     costAnalysisError = e.message || "Error desconocido al conectar con Google Sheets.";
   }
 
+  // Cargar el resumen historico de platillos/proteinas mas vendidos
+  let platillos = [];
+  let platillosError = null;
+  try {
+    const summary = await getPlatillosSummary();
+    platillos = summary.platillos;
+  } catch (e) {
+    platillosError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
   // Cargar el resumen financiero mensual (ventas, insumos, gastos fijos, utilidad)
   let finances = [];
   let financesError = null;
@@ -82,17 +98,34 @@ export default async function AdminPage() {
     financesError = e.message || "Error desconocido al conectar con Google Sheets.";
   }
 
+  // Cargar arqueos (con su comparacion esperado/contado) y retiros/gastos
+  let arqueos = [];
+  let retiros = [];
+  let cashCountError = null;
+  try {
+    arqueos = await getArqueosWithComparison();
+    retiros = await getRetiros();
+  } catch (e) {
+    cashCountError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
   return (
     <div style={{ backgroundColor: "#fafafa" }} className="min-h-screen">
       <AdminTabs
         orders={orders}
         ordersError={ordersError}
         purchases={purchases}
+        deudas={deudas}
         purchasesError={purchasesError}
         costAnalysis={costAnalysis}
         costAnalysisError={costAnalysisError}
+        platillos={platillos}
+        platillosError={platillosError}
         finances={finances}
         financesError={financesError}
+        arqueos={arqueos}
+        retiros={retiros}
+        cashCountError={cashCountError}
         leads={leads}
         leadsError={error}
       />
