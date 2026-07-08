@@ -49,6 +49,50 @@ function fuenteBadgeClass(fuente) {
   return "bg-gray-100 text-gray-500";
 }
 
+function Accordion({ title, summary, isOpen, onToggle, children }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-4">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span
+            className="text-xs shrink-0 transition-transform duration-200"
+            style={{
+              color: "#7f1d1d",
+              display: "inline-block",
+              transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+            }}
+          >
+            ▶
+          </span>
+          <h3 className="text-sm font-semibold text-gray-700 truncate">{title}</h3>
+        </div>
+        {summary && (
+          <span
+            className={`text-xs text-gray-400 truncate shrink-0 transition-opacity duration-200 ${
+              isOpen ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            {summary}
+          </span>
+        )}
+      </button>
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
+        style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <div className="px-5 pb-5">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const emptySueldo = { sueldoSemanal: 0, promedioPlatillosSemana: 0, costoPorPlatillo: 0 };
 const emptyBlock = {
   salsas: [],
@@ -77,6 +121,16 @@ export default function CostsSection({
   const [hastaInput, setHastaInput] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [openSections, setOpenSections] = useState({
+    salsas: false,
+    proteinas: false,
+    platillo: true,
+    ingredientes: false,
+  });
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   const currentBlock = analysis[view] || emptyBlock;
   const rangoPendiente = view === "rangoPersonalizado" && !analysis.rangoPersonalizado;
@@ -121,6 +175,12 @@ export default function CostsSection({
       }),
     [currentBlock]
   );
+
+  const avgUtilidadPct = useMemo(() => {
+    if (rows.length === 0) return null;
+    const sum = rows.reduce((acc, r) => acc + r.pct, 0);
+    return sum / rows.length;
+  }, [rows]);
 
   async function fetchAnalysis({ desde, hasta } = {}) {
     setRefreshing(true);
@@ -252,143 +312,169 @@ export default function CostsSection({
           <PlatillosSection initialPlatillos={initialPlatillos} error={platillosError} />
 
           {/* Mis salsas */}
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Mis salsas</h3>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {currentBlock.salsas.map((s) => (
-              <div
-                key={s.nombre}
-                className="bg-white border border-gray-200 rounded-2xl p-5"
-              >
-                <p className="text-sm text-gray-500 mb-1">{s.nombre}</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {formatCurrency(s.costoTotal)}
+          <Accordion
+            title="Mis salsas"
+            summary={`${currentBlock.salsas.length} ${
+              currentBlock.salsas.length === 1 ? "salsa" : "salsas"
+            }`}
+            isOpen={openSections.salsas}
+            onToggle={() => toggleSection("salsas")}
+          >
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {currentBlock.salsas.map((s) => (
+                <div
+                  key={s.nombre}
+                  className="bg-white border border-gray-200 rounded-2xl p-5"
+                >
+                  <p className="text-sm text-gray-500 mb-1">{s.nombre}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {formatCurrency(s.costoTotal)}
+                  </p>
+                  <p className="text-xs text-gray-400 mb-2">
+                    costo de la tanda ({s.rendimientoLitros} L)
+                  </p>
+                  <p className="text-sm font-medium" style={{ color: "#7f1d1d" }}>
+                    {formatCurrency(s.costoPorLitro)} / litro
+                  </p>
+                </div>
+              ))}
+              {currentBlock.salsas.length === 0 && (
+                <p className="text-sm text-gray-400 col-span-full">
+                  No hay recetas de salsa registradas.
                 </p>
-                <p className="text-xs text-gray-400 mb-2">
-                  costo de la tanda ({s.rendimientoLitros} L)
-                </p>
-                <p className="text-sm font-medium" style={{ color: "#7f1d1d" }}>
-                  {formatCurrency(s.costoPorLitro)} / litro
-                </p>
-              </div>
-            ))}
-            {currentBlock.salsas.length === 0 && (
-              <p className="text-sm text-gray-400 col-span-full">
-                No hay recetas de salsa registradas.
-              </p>
-            )}
-          </div>
+              )}
+            </div>
+          </Accordion>
 
           {/* Proteinas y extras */}
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Proteínas y extras</h3>
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-8">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Proteina</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Costo por porcion</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Precio de venta como extra</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {proteinRows.map((p) => (
-                    <tr key={p.key} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-5 py-4 font-medium text-gray-900 whitespace-nowrap">
-                        {p.nombre}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {formatCurrency(p.costo)}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {p.tieneExtra ? formatCurrency(p.precioExtra) : "—"}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {p.tieneExtra ? formatCurrency(p.utilidad) : "—"}
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        {p.tieneExtra ? (
-                          <span
-                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${utilidadBadgeClass(
-                              p.pct
-                            )}`}
-                          >
-                            {p.pct.toFixed(1)}%
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
+          <Accordion
+            title="Proteínas y extras"
+            summary={`${proteinRows.length} ${
+              proteinRows.length === 1 ? "proteina" : "proteinas"
+            }`}
+            isOpen={openSections.proteinas}
+            onToggle={() => toggleSection("proteinas")}
+          >
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Proteina</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Costo por porcion</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Precio de venta como extra</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad %</th>
                     </tr>
-                  ))}
-                  {proteinRows.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="text-center text-gray-400 py-8 text-sm">
-                        No hay proteinas registradas en Recetas.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 bg-white">
+                    {proteinRows.map((p) => (
+                      <tr key={p.key} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-4 font-medium text-gray-900 whitespace-nowrap">
+                          {p.nombre}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {formatCurrency(p.costo)}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {p.tieneExtra ? formatCurrency(p.precioExtra) : "—"}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {p.tieneExtra ? formatCurrency(p.utilidad) : "—"}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          {p.tieneExtra ? (
+                            <span
+                              className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${utilidadBadgeClass(
+                                p.pct
+                              )}`}
+                            >
+                              {p.pct.toFixed(1)}%
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {proteinRows.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center text-gray-400 py-8 text-sm">
+                          No hay proteinas registradas en Recetas.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </Accordion>
 
           {/* Costo por platillo */}
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Costo por platillo</h3>
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-8">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Salsa</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Proteina</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Costo real</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Precio de venta</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {rows.map((r) => (
-                    <tr key={r.key} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-5 py-4 font-medium text-gray-900 whitespace-nowrap">
-                        {r.salsa}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {r.proteina}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {formatCurrency(r.costo)}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {formatCurrency(r.precioVenta)}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {formatCurrency(r.utilidad)}
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${utilidadBadgeClass(
-                            r.pct
-                          )}`}
-                        >
-                          {r.pct.toFixed(1)}%
-                        </span>
-                      </td>
+          <Accordion
+            title="Costo por platillo"
+            summary={
+              avgUtilidadPct === null
+                ? "sin datos"
+                : `margen promedio ${avgUtilidadPct.toFixed(0)}%`
+            }
+            isOpen={openSections.platillo}
+            onToggle={() => toggleSection("platillo")}
+          >
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Salsa</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Proteina</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Costo real</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Precio de venta</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Utilidad %</th>
                     </tr>
-                  ))}
-                  {rows.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="text-center text-gray-400 py-8 text-sm">
-                        No hay platillos registrados en Recetas.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 bg-white">
+                    {rows.map((r) => (
+                      <tr key={r.key} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-4 font-medium text-gray-900 whitespace-nowrap">
+                          {r.salsa}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {r.proteina}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {formatCurrency(r.costo)}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {formatCurrency(r.precioVenta)}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {formatCurrency(r.utilidad)}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${utilidadBadgeClass(
+                              r.pct
+                            )}`}
+                          >
+                            {r.pct.toFixed(1)}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {rows.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="text-center text-gray-400 py-8 text-sm">
+                          No hay platillos registrados en Recetas.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </Accordion>
 
           {/* Mano de obra prorrateada */}
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Mano de obra (sueldo)</h3>
@@ -417,52 +503,60 @@ export default function CostsSection({
           </div>
 
           {/* Precios de ingredientes */}
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Precios de ingredientes</h3>
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Ingrediente</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Precio usado</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Unidad</th>
-                    <th className="text-left px-5 py-3.5 font-medium text-gray-600">Origen</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {currentBlock.ingredientes.map((ing) => (
-                    <tr key={ing.nombre} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-5 py-4 font-medium text-gray-900 whitespace-nowrap">
-                        {ing.nombre}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {formatCurrency(ing.precio)}
-                      </td>
-                      <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
-                        {ing.unidad}
-                      </td>
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${fuenteBadgeClass(
-                            ing.fuente
-                          )}`}
-                        >
-                          {fuenteLabel(ing.fuente)}
-                        </span>
-                      </td>
+          <Accordion
+            title="Precios de ingredientes"
+            summary={`${currentBlock.ingredientes.length} ${
+              currentBlock.ingredientes.length === 1 ? "ingrediente" : "ingredientes"
+            }`}
+            isOpen={openSections.ingredientes}
+            onToggle={() => toggleSection("ingredientes")}
+          >
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Ingrediente</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Precio usado</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Unidad</th>
+                      <th className="text-left px-5 py-3.5 font-medium text-gray-600">Origen</th>
                     </tr>
-                  ))}
-                  {currentBlock.ingredientes.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="text-center text-gray-400 py-8 text-sm">
-                        No hay ingredientes registrados.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 bg-white">
+                    {currentBlock.ingredientes.map((ing) => (
+                      <tr key={ing.nombre} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-4 font-medium text-gray-900 whitespace-nowrap">
+                          {ing.nombre}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {formatCurrency(ing.precio)}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
+                          {ing.unidad}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${fuenteBadgeClass(
+                              ing.fuente
+                            )}`}
+                          >
+                            {fuenteLabel(ing.fuente)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {currentBlock.ingredientes.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="text-center text-gray-400 py-8 text-sm">
+                          No hay ingredientes registrados.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </Accordion>
         </>
       )}
     </div>

@@ -9,6 +9,7 @@ import {
   getFinancesSummary,
   getArqueosWithComparison,
   getRetiros,
+  ensureAyudaSemanalActual,
 } from "@/libs/google-sheets";
 import LoginForm from "./LoginForm";
 import AdminTabs from "./AdminTabs";
@@ -39,6 +40,14 @@ export default async function AdminPage() {
         <LoginForm />
       </div>
     );
+  }
+
+  // Si falta la fila de ayuda semanal de esta semana, la crea (sustituye a un
+  // cron real: basta con checar cada vez que se visita el panel).
+  try {
+    await ensureAyudaSemanalActual();
+  } catch {
+    // Si falla, simplemente no se crea esta vez; se reintenta en la proxima visita.
   }
 
   // Cargar los pedidos desde Google Sheets

@@ -266,6 +266,110 @@ export async function getDeudas() {
   return deudas;
 }
 
+const AYUDA_SEMANAL_SHEET_TITLE = "AyudaSemanal";
+const AYUDA_SEMANAL_HEADERS = ["Fecha", "Monto", "Pagado"];
+
+async function getAyudaSemanalSheet(doc) {
+  let sheet = doc.sheetsByTitle[AYUDA_SEMANAL_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: AYUDA_SEMANAL_SHEET_TITLE,
+      headerValues: AYUDA_SEMANAL_HEADERS,
+    });
+  } else {
+    await sheet.loadHeaderRow();
+  }
+  return sheet;
+}
+
+export async function addAyudaSemanal({ fecha, monto, pagado }) {
+  const doc = await getDoc();
+  const sheet = await getAyudaSemanalSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+
+  const fechaFormateada = fecha
+    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
+    : new Date().toLocaleDateString("es-MX");
+
+  const row = await sheet.addRow({
+    [h("Fecha")]: fechaFormateada,
+    [h("Monto")]: Number(monto) || 0,
+    [h("Pagado")]: pagado ? "Si" : "No",
+  });
+
+  return { rowNumber: row.rowNumber };
+}
+
+export async function getAyudaSemanal() {
+  const doc = await getDoc();
+  const sheet = await getAyudaSemanalSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  return rows.map((row) => ({
+    fecha: row.get(h("Fecha")) || "",
+    monto: Number(row.get(h("Monto"))) || 0,
+    pagado: (row.get(h("Pagado")) || "").toLowerCase() === "si",
+    rowNumber: row.rowNumber,
+  }));
+}
+
+// Suma el Monto de las semanas de ayuda aun no pagadas, para combinarlo con
+// getDeudas().papasVanessa en un solo total de deuda (ver PurchasesSection).
+export async function getAyudaSemanalPendiente() {
+  const ayuda = await getAyudaSemanal();
+  return ayuda.reduce((sum, a) => (a.pagado ? sum : sum + a.monto), 0);
+}
+
+export async function updateAyudaSemanalPagado(rowNumber, pagado) {
+  const doc = await getDoc();
+  const sheet = await getAyudaSemanalSheet(doc);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const rows = await sheet.getRows();
+  const row = rows.find((r) => r.rowNumber === rowNumber);
+  if (!row) return false;
+  row.set(h("Pagado"), pagado ? "Si" : "No");
+  await row.save();
+  return true;
+}
+
+function toISODateString(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Domingo mas reciente (hoy inclusive), para agrupar la ayuda semanal por
+// semana de domingo a sabado.
+function getMostRecentSunday(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - d.getDay());
+  return d;
+}
+
+// Crea la fila de ayuda semanal del domingo mas reciente si todavia no
+// existe, usando el monto configurado en ParametrosCosteo ("Sueldo semanal
+// ayuda") como default. Se llama al cargar el panel de admin en vez de
+// depender de un cron real: si ya existe la fila de esta semana no hace nada.
+export async function ensureAyudaSemanalActual() {
+  const domingo = getMostRecentSunday(new Date());
+
+  const existentes = await getAyudaSemanal();
+  const yaExiste = existentes.some((a) => {
+    const fecha = parseFechaCompra(a.fecha);
+    return fecha && fecha.getTime() === domingo.getTime();
+  });
+  if (yaExiste) return;
+
+  const parametros = await getParametrosCosteo();
+  const monto =
+    parametros.find(
+      (p) => normalizeName(p.concepto) === normalizeName("Sueldo semanal ayuda")
+    )?.valor || 100;
+
+  await addAyudaSemanal({ fecha: toISODateString(domingo), monto, pagado: false });
+}
+
 // Agrupa las compras (con precio) por Producto dentro de [desde, hasta] (ambas
 // inclusive, formato "YYYY-MM-DD"). Sin rango, usa todo el historico. Devuelve
 // la lista ordenada de mayor a menor gasto, con el % sobre el gasto total del

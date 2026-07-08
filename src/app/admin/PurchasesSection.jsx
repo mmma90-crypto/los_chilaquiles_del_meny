@@ -95,6 +95,46 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
   const [topInsumos, setTopInsumos] = useState([]);
   const [loadingTopInsumos, setLoadingTopInsumos] = useState(false);
 
+  const [ayudaSemanal, setAyudaSemanal] = useState([]);
+  const [ayudaPendiente, setAyudaPendiente] = useState(0);
+  const [marcandoAyudaRow, setMarcandoAyudaRow] = useState(null);
+
+  async function refreshAyuda() {
+    try {
+      const res = await fetch("/api/ayuda");
+      if (!res.ok) return;
+      const data = await res.json();
+      setAyudaSemanal(data.ayudaSemanal || []);
+      setAyudaPendiente(data.pendiente || 0);
+    } catch {
+      // Si falla, la seccion de ayuda semanal sigue mostrando el estado anterior.
+    }
+  }
+
+  useEffect(() => {
+    refreshAyuda();
+  }, []);
+
+  async function handleMarcarAyudaPagada(rowNumber) {
+    setMarcandoAyudaRow(rowNumber);
+    try {
+      const res = await fetch("/api/ayuda", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber, pagado: true }),
+      });
+      if (!res.ok) return;
+      await refreshAyuda();
+    } catch {
+      // Si falla, la fila sigue mostrando pendiente y se puede reintentar.
+    } finally {
+      setMarcandoAyudaRow(null);
+    }
+  }
+
+  const ayudaPendienteRows = ayudaSemanal.filter((a) => !a.pagado);
+  const totalPapasVanessa = (deudas.papasVanessa || 0) + ayudaPendiente;
+
   useEffect(() => {
     async function loadProductos() {
       try {
@@ -552,15 +592,52 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
             </div>
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Le debo a Papás Vanessa</p>
-              {deudas.papasVanessa > 0 ? (
-                <p className="text-3xl font-bold text-gray-900">
-                  {formatCurrency(deudas.papasVanessa)}
-                </p>
+              {totalPapasVanessa > 0 ? (
+                <>
+                  <p className="text-3xl font-bold text-gray-900">
+                    {formatCurrency(totalPapasVanessa)}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Insumos: {formatCurrency(deudas.papasVanessa)} | Ayuda semanal:{" "}
+                    {formatCurrency(ayudaPendiente)} ({ayudaPendienteRows.length} semana
+                    {ayudaPendienteRows.length !== 1 ? "s" : ""})
+                  </p>
+                </>
               ) : (
                 <p className="text-3xl font-bold text-green-700">Al día ✓</p>
               )}
             </div>
           </div>
+
+          {/* Ayuda semanal pendiente */}
+          {ayudaPendienteRows.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                Ayuda semanal pendiente
+              </h3>
+              <div className="space-y-2">
+                {ayudaPendienteRows.map((a) => (
+                  <div
+                    key={a.rowNumber}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <span className="text-gray-600">{a.fecha}</span>
+                    <span className="font-medium text-gray-900">
+                      {formatCurrency(a.monto)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleMarcarAyudaPagada(a.rowNumber)}
+                      disabled={marcandoAyudaRow === a.rowNumber}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-60 transition-colors"
+                    >
+                      {marcandoAyudaRow === a.rowNumber ? "Marcando..." : "Marcar pagada"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Insumos con mayor impacto */}
           <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
