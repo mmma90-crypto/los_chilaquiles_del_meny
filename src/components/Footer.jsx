@@ -67,6 +67,18 @@ export default function Footer() {
           color: "#9C8265",
         }}
       >
+        {footer.legalLinks?.length > 0 && (
+          <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#8A7458", lineHeight: 1.9 }}>
+            {footer.legalLinks.map((link, i) => (
+              <span key={link.href}>
+                {i > 0 && " · "}
+                <a href={link.href} style={{ color: "#8A7458", textDecoration: "none" }}>
+                  {link.label}
+                </a>
+              </span>
+            ))}
+          </p>
+        )}
         © {new Date().getFullYear()} {name}. {footer.copyright}
       </div>
     </footer>

@@ -153,6 +153,16 @@ export const siteConfig = {
       { label: "Contacto", href: "#contact" },
     ],
     copyright: "Todos los derechos reservados.",
+    // Links a las paginas legales (se muestran discretos al pie del footer)
+    legalLinks: [
+      { label: "Términos y Condiciones", href: "/terminos-y-condiciones" },
+      { label: "Aviso de Privacidad", href: "/aviso-de-privacidad" },
+      { label: "Aviso Legal", href: "/aviso-legal" },
+      { label: "Política de Compras", href: "/politica-de-compras" },
+      { label: "Envíos y Entregas", href: "/politica-de-envios" },
+      { label: "Cancelaciones y Reembolsos", href: "/politica-de-cancelaciones" },
+      { label: "Cookies", href: "/politica-de-cookies" },
+    ],
   },
 
   // ─────────────────────────────────────────────

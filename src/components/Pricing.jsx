@@ -306,6 +306,7 @@ export default function Pricing() {
     accessRef: "",
   });
   const [customerErrors, setCustomerErrors] = useState({});
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   /* ubicación */
   const [locationStatus, setLocationStatus] = useState("idle");
@@ -426,6 +427,7 @@ export default function Pricing() {
   }
 
   function handleContinueToPayment() {
+    if (!acceptedTerms) return;
     const errs = validateCustomer();
     if (Object.keys(errs).length > 0) { setCustomerErrors(errs); return; }
 
@@ -463,6 +465,7 @@ export default function Pricing() {
         telefono: customerData.phone,
         direccion: customerData.address,
         ubicacion: customerData.locationUrl,
+        aceptaTerminos: acceptedTerms,
       }),
     })
       .then((res) => res.json())
@@ -877,6 +880,36 @@ export default function Pricing() {
                     />
                   </div>
 
+                  {/* Aceptación de aviso de privacidad y términos */}
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", userSelect: "none" }}>
+                    <input
+                      type="checkbox"
+                      checked={acceptedTerms}
+                      onChange={(e) => setAcceptedTerms(e.target.checked)}
+                      style={{ marginTop: 3, width: 16, height: 16, flexShrink: 0, accentColor: "#D6452B", cursor: "pointer" }}
+                    />
+                    <span style={{ fontSize: 13.5, color: "#6B5746", lineHeight: 1.6 }}>
+                      He leído y acepto el{" "}
+                      <a
+                        href="/aviso-de-privacidad"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#6B5746", textDecoration: "underline" }}
+                      >
+                        Aviso de Privacidad
+                      </a>{" "}
+                      y los{" "}
+                      <a
+                        href="/terminos-y-condiciones"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#6B5746", textDecoration: "underline" }}
+                      >
+                        Términos y Condiciones
+                      </a>
+                    </span>
+                  </label>
+
                   {/* Botones */}
                   <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 4 }}>
                     <button
@@ -901,10 +934,11 @@ export default function Pricing() {
                     <button
                       type="button"
                       onClick={handleContinueToPayment}
+                      disabled={!acceptedTerms}
                       style={{
                         flex: 1,
                         minWidth: 180,
-                        background: "#D6452B",
+                        background: acceptedTerms ? "#D6452B" : "#C9A98C",
                         color: "#fff",
                         border: "none",
                         fontFamily: "'Baloo 2', sans-serif",
@@ -912,8 +946,10 @@ export default function Pricing() {
                         fontSize: 17,
                         padding: 14,
                         borderRadius: 999,
-                        cursor: "pointer",
-                        boxShadow: "0 12px 26px rgba(214,69,43,.28)",
+                        cursor: acceptedTerms ? "pointer" : "not-allowed",
+                        opacity: acceptedTerms ? 1 : 0.65,
+                        boxShadow: acceptedTerms ? "0 12px 26px rgba(214,69,43,.28)" : "none",
+                        transition: "all .2s",
                       }}
                     >
                       {customer.payButton}

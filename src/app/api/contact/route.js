@@ -29,7 +29,7 @@ export async function POST(request) {
     );
   }
 
-  const { name, email, phone, message } = body;
+  const { name, email, phone, message, aceptaTerminos } = body;
 
   if (!name?.trim()) {
     return NextResponse.json(
@@ -58,7 +58,7 @@ export async function POST(request) {
 
   // 2. Guardar en Google Sheets
   try {
-    await addRowToSheet({ name, email, phone, message });
+    await addRowToSheet({ name, email, phone, message, aceptaTerminos });
   } catch (error) {
     console.error("Error al guardar en Google Sheets:", error);
     return NextResponse.json(

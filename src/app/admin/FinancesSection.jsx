@@ -47,14 +47,15 @@ const initialForm = {
 
 export default function FinancesSection({ initialFinances, error }) {
   const [meses, setMeses] = useState(initialFinances || []);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  // Los meses van en base 1 (enero=1 ... diciembre=12) en todo el panel.
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [expandedMonth, setExpandedMonth] = useState(null);
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
 
   const currentYear = new Date().getFullYear();
-  const currentMonthIndex = new Date().getMonth();
+  const currentMonthNumber = new Date().getMonth() + 1;
 
   function toggleMonth(mes) {
     setExpandedMonth((prev) => (prev === mes ? null : mes));
@@ -79,7 +80,7 @@ export default function FinancesSection({ initialFinances, error }) {
       transferencia += m.totalesPorMetodo?.transferencia || 0;
       tarjetaPaypal += m.totalesPorMetodo?.tarjetaPaypal || 0;
       gastoInsumos += m.gastoInsumos || 0;
-      if (m.mes <= currentMonthIndex) {
+      if (m.mes <= currentMonthNumber) {
         gastosFijosAcumulados += m.gastosFijos || 0;
       }
     });
@@ -97,7 +98,7 @@ export default function FinancesSection({ initialFinances, error }) {
       utilidadNeta,
       margenNeto,
     };
-  }, [meses, currentMonthIndex]);
+  }, [meses, currentMonthNumber]);
 
   async function refreshFinances() {
     try {
@@ -209,7 +210,7 @@ export default function FinancesSection({ initialFinances, error }) {
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
         >
           {MESES_NOMBRES.map((nombre, i) => (
-            <option key={nombre} value={i}>
+            <option key={nombre} value={i + 1}>
               {nombre}
             </option>
           ))}
@@ -408,7 +409,7 @@ export default function FinancesSection({ initialFinances, error }) {
                                   d="M9 5l7 7-7 7"
                                 />
                               </svg>
-                              {MESES_NOMBRES[m.mes]}
+                              {MESES_NOMBRES[m.mes - 1]}
                             </span>
                           </td>
                           <td className="px-5 py-4 text-gray-600 whitespace-nowrap">
@@ -453,7 +454,7 @@ export default function FinancesSection({ initialFinances, error }) {
 
 function EstadoResultadosSection({ meses }) {
   const now = new Date();
-  const [mes, setMes] = useState(now.getMonth());
+  const [mes, setMes] = useState(now.getMonth() + 1);
   const [anio, setAnio] = useState(now.getFullYear());
   // `resultado.key` indica a que mes/año corresponde lo cargado; mientras no
   // coincida con la seleccion actual, la seccion se muestra como "cargando".
@@ -526,7 +527,7 @@ function EstadoResultadosSection({ meses }) {
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
           >
             {MESES_NOMBRES.map((nombre, i) => (
-              <option key={nombre} value={i}>
+              <option key={nombre} value={i + 1}>
                 {nombre}
               </option>
             ))}
@@ -600,7 +601,7 @@ function EstadoResultadosSection({ meses }) {
                   pe.arribaDelEquilibrio ? "text-green-700" : "text-red-700"
                 }`}
               >
-                {MESES_NOMBRES[pe.mes]}: {pe.platillosVendidosMes} vendidos —{" "}
+                {MESES_NOMBRES[pe.mes - 1]}: {pe.platillosVendidosMes} vendidos —{" "}
                 {pe.arribaDelEquilibrio ? "arriba" : "abajo"} del equilibrio
               </p>
               <p className="text-xs text-gray-400 mt-2">
@@ -763,7 +764,7 @@ function EstadoResultadosPrint({ estado, onClose }) {
             {siteConfig.name}
           </p>
           <p className="text-lg font-semibold text-gray-900 mt-1">
-            Estado de resultados — {MESES_NOMBRES[estado.mes]} {estado.anio}
+            Estado de resultados — {MESES_NOMBRES[estado.mes - 1]} {estado.anio}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             Generado el {new Date().toLocaleDateString("es-MX")}
@@ -806,7 +807,7 @@ function AnnualBarChart({ meses }) {
             <div
               key={m.mes}
               className="flex-1 flex flex-col items-center"
-              title={`${MESES_NOMBRES[m.mes]}: ${formatCurrency(utilidad)}`}
+              title={`${MESES_NOMBRES[m.mes - 1]}: ${formatCurrency(utilidad)}`}
             >
               <div
                 className="w-full flex flex-col justify-end"
@@ -839,7 +840,7 @@ function AnnualBarChart({ meses }) {
                 )}
               </div>
               <p className="text-[10px] text-gray-400 mt-2 uppercase">
-                {MESES_NOMBRES[m.mes].slice(0, 3)}
+                {MESES_NOMBRES[m.mes - 1].slice(0, 3)}
               </p>
             </div>
           );

@@ -1,0 +1,245 @@
+# Política de Cookies
+
+**Última actualización:** 08 de julio de 2026
+
+---
+
+# Política de Cookies
+
+La presente Política de Cookies explica cómo **Los Chilaquiles del Meny** utiliza cookies y tecnologías similares cuando los usuarios visitan nuestro sitio web.
+
+Esta Política complementa el Aviso de Privacidad y los Términos y Condiciones del sitio.
+
+Al continuar navegando en nuestro sitio web o aceptar el uso de cookies mediante el banner correspondiente, el usuario acepta el uso de cookies conforme a esta Política.
+
+---
+
+# 1. ¿Qué son las Cookies?
+
+Las cookies son pequeños archivos de texto que un sitio web almacena en el navegador o dispositivo del usuario.
+
+Su finalidad consiste en recordar determinada información sobre la navegación para mejorar la experiencia del usuario y permitir el funcionamiento adecuado del sitio.
+
+Las cookies no dañan el dispositivo del usuario ni permiten acceder por sí mismas a información contenida en él.
+
+---
+
+# 2. Finalidad del Uso de Cookies
+
+Los Chilaquiles del Meny utiliza cookies para:
+
+- Recordar preferencias del usuario.
+- Mantener el funcionamiento correcto del sitio.
+- Mejorar la velocidad de navegación.
+- Facilitar el proceso de compra.
+- Recordar el contenido del carrito.
+- Analizar estadísticas de uso.
+- Detectar errores técnicos.
+- Fortalecer la seguridad del sitio.
+- Prevenir actividades fraudulentas.
+- Mejorar continuamente nuestros servicios.
+
+---
+
+# 3. Tipos de Cookies Utilizadas
+
+Dependiendo de la funcionalidad implementada en el sitio web, podremos utilizar las siguientes categorías de cookies.
+
+## Cookies Estrictamente Necesarias
+
+Son indispensables para el funcionamiento del sitio.
+
+Permiten, entre otras funciones:
+
+- Navegar entre páginas.
+- Mantener la sesión del usuario.
+- Recordar el carrito de compra.
+- Procesar pagos.
+- Proteger formularios contra ataques automatizados.
+
+Estas cookies no pueden deshabilitarse sin afectar el funcionamiento del sitio.
+
+---
+
+## Cookies de Rendimiento
+
+Permiten conocer el comportamiento general del sitio mediante información estadística anónima.
+
+Entre otros aspectos pueden medir:
+
+- Número de visitas.
+- Tiempo de permanencia.
+- Páginas más consultadas.
+- Errores de navegación.
+- Rendimiento general.
+
+La información obtenida se utiliza exclusivamente para mejorar nuestros servicios.
+
+---
+
+## Cookies de Funcionalidad
+
+Permiten recordar preferencias del usuario, tales como:
+
+- Idioma.
+- Configuración.
+- Datos previamente capturados.
+- Preferencias de navegación.
+
+Su finalidad es ofrecer una experiencia más cómoda y personalizada.
+
+---
+
+## Cookies Analíticas
+
+Cuando el sitio utilice herramientas de análisis, podrán instalarse cookies destinadas a comprender la interacción de los usuarios con la plataforma.
+
+Estas herramientas podrán proporcionar información estadística relacionada con:
+
+- Dispositivos utilizados.
+- Sistema operativo.
+- Navegador.
+- Tiempo de navegación.
+- Flujo de usuarios.
+
+La información se utiliza únicamente para mejorar el sitio web.
+
+---
+
+## Cookies Publicitarias
+
+En caso de implementar campañas publicitarias, podrán utilizarse cookies que permitan mostrar anuncios relevantes para los usuarios.
+
+Estas cookies podrán ser administradas por proveedores externos conforme a sus propias políticas de privacidad.
+
+---
+
+# 4. Cookies de Terceros
+
+Nuestro sitio puede utilizar servicios proporcionados por terceros que, a su vez, instalan sus propias cookies.
+
+Entre ellos podrán encontrarse:
+
+- Google Analytics.
+- Google Tag Manager.
+- Google Maps.
+- Meta Pixel.
+- Mercado Pago.
+- PayPal.
+- Servicios de seguridad.
+- Herramientas de chat.
+- Plataformas de análisis.
+
+Cada uno de estos proveedores trata la información conforme a sus propios términos y políticas de privacidad.
+
+Los Chilaquiles del Meny no controla las cookies administradas directamente por dichos terceros.
+
+---
+
+# 5. Cookies de Mercado Pago
+
+Cuando el usuario realice un pago mediante Mercado Pago, esta plataforma podrá instalar cookies necesarias para:
+
+- Validar la sesión.
+- Detectar fraude.
+- Procesar el pago.
+- Prevenir operaciones no autorizadas.
+
+El tratamiento de dichas cookies se encuentra sujeto a la Política de Privacidad de Mercado Pago.
+
+---
+
+# 6. Cookies de PayPal
+
+Cuando el usuario utilice PayPal como método de pago, esta plataforma podrá utilizar cookies relacionadas con:
+
+- Seguridad.
+- Prevención de fraude.
+- Autenticación.
+- Procesamiento del pago.
+
+El tratamiento de dichas cookies se rige por las políticas propias de PayPal.
+
+---
+
+# 7. Duración de las Cookies
+
+Las cookies pueden clasificarse según su duración en:
+
+## Cookies de Sesión
+
+Permanecen activas únicamente mientras el usuario navega por el sitio.
+
+Se eliminan automáticamente al cerrar el navegador.
+
+---
+
+## Cookies Persistentes
+
+Permanecen almacenadas durante un periodo determinado para recordar preferencias del usuario en futuras visitas.
+
+La duración dependerá del tipo de cookie utilizada.
+
+---
+
+# 8. Administración de Cookies
+
+El usuario puede aceptar, rechazar o eliminar cookies mediante la configuración de su navegador.
+
+La desactivación de determinadas cookies puede afectar el correcto funcionamiento del sitio.
+
+Cada navegador ofrece procedimientos distintos para administrar cookies.
+
+Se recomienda consultar la documentación oficial del navegador utilizado.
+
+---
+
+# 9. Consentimiento
+
+Cuando la legislación aplicable así lo requiera, el sitio solicitará el consentimiento del usuario antes de instalar cookies que no sean estrictamente necesarias para el funcionamiento de la plataforma.
+
+El usuario podrá modificar sus preferencias en cualquier momento mediante las herramientas disponibles en el sitio.
+
+---
+
+# 10. Seguridad
+
+Las cookies utilizadas por Los Chilaquiles del Meny no contienen por sí mismas información bancaria ni permiten acceder directamente a datos personales almacenados en el dispositivo del usuario.
+
+Asimismo, implementamos medidas razonables para proteger la información obtenida mediante dichas tecnologías.
+
+---
+
+# 11. Modificaciones
+
+La presente Política podrá actualizarse para reflejar cambios tecnológicos, legales o en la forma en que operan nuestros servicios.
+
+La versión vigente será siempre la publicada en el sitio web.
+
+---
+
+# 12. Contacto
+
+Para cualquier duda relacionada con esta Política de Cookies, el usuario podrá comunicarse mediante:
+
+**Los Chilaquiles del Meny**
+
+📧 Correo electrónico:
+
+mmma90@gmail.com
+
+📱 WhatsApp:
+
++52 (614) 275-0183
+
+---
+
+# 13. Legislación Aplicable
+
+La presente Política de Cookies se interpretará conforme a las leyes de los Estados Unidos Mexicanos.
+
+---
+
+**© 2026 Los Chilaquiles del Meny.**
+
+Todos los derechos reservados.

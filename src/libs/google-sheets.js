@@ -10,11 +10,62 @@ function getAuth() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Cache en memoria para las lecturas de Google Sheets.
+//
+// La API de Google limita las lecturas por minuto y el panel de admin encadena
+// varias funciones que releen las mismas pestañas (getPuntoDeEquilibrio ->
+// getCostAnalysis -> getPurchases, etc.), lo que disparaba errores 429
+// "Quota exceeded". Aqui se guarda en memoria el doc, cada pestaña (con
+// encabezados ya cargados) y sus filas por un tiempo corto. Se cachea la
+// PROMESA (no el valor) para que varias llamadas simultaneas (Promise.all)
+// compartan una sola peticion a Google en vez de disparar una cada una.
+// Las escrituras invalidan las filas de su pestaña (invalidateRows) para que
+// el cambio se vea reflejado al instante, sin esperar a que expire el TTL.
+const CACHE_TTL_MS = 45_000;
+const memCache = new Map(); // clave -> { value: Promise, expires: timestamp }
+
+function cached(key, loader) {
+  const hit = memCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  const value = loader().catch((err) => {
+    // No dejar cacheado un intento fallido (ej. un 429 transitorio):
+    // el siguiente llamado debe reintentar contra la API.
+    if (memCache.get(key)?.value === value) memCache.delete(key);
+    throw err;
+  });
+  memCache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+  return value;
+}
+
+function invalidateRows(sheetTitle) {
+  memCache.delete(`rows:${sheetTitle}`);
+}
+
 async function getDoc() {
-  const auth = getAuth();
-  const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
-  await doc.loadInfo();
-  return doc;
+  return cached("doc", async () => {
+    const auth = getAuth();
+    const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
+    await doc.loadInfo();
+    return doc;
+  });
+}
+
+// Devuelve la pestaña `title` via cache. `getter` es la funcion getXxxSheet(doc)
+// ya existente (crea la pestaña si falta y deja los encabezados cargados).
+function getSheetCached(title, getter) {
+  return cached(`sheet:${title}`, async () => {
+    const doc = await getDoc();
+    return getter(doc);
+  });
+}
+
+// Filas de una pestaña, cacheadas. Devuelve { sheet, rows } para que los
+// lectores sigan usando matchHeader(sheet.headerValues, ...) como siempre.
+async function getRowsCached(title, getter) {
+  const sheet = await getSheetCached(title, getter);
+  const rows = await cached(`rows:${title}`, () => sheet.getRows());
+  return { sheet, rows };
 }
 
 // Encuentra el nombre real de una columna sin importar mayusculas/minusculas,
@@ -25,12 +76,19 @@ function matchHeader(headerValues, label) {
   );
 }
 
-export async function getLeads() {
-  const doc = await getDoc();
+// La hoja de Leads es la primera pestaña del documento (sin titulo fijo);
+// se cachea bajo una clave propia.
+const LEADS_CACHE_TITLE = "__leads__";
+
+async function getLeadsSheet(doc) {
   const sheet = doc.sheetsByIndex[0];
   await sheet.loadHeaderRow();
+  return sheet;
+}
+
+export async function getLeads() {
+  const { sheet, rows } = await getRowsCached(LEADS_CACHE_TITLE, getLeadsSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     nombre: row.get(h("Nombre")) || "",
@@ -40,10 +98,24 @@ export async function getLeads() {
   }));
 }
 
-export async function addRowToSheet({ name, email, phone, message }) {
-  const doc = await getDoc();
-  const sheet = doc.sheetsByIndex[0];
-  await sheet.loadHeaderRow();
+// Columna de evidencia de que el usuario acepto el aviso de privacidad y los
+// terminos al enviar el formulario; guarda "Si" con la fecha/hora del envio.
+const ACCEPT_TERMS_HEADER = "Acepto aviso de privacidad y terminos";
+
+function acceptTermsValue(aceptaTerminos) {
+  return aceptaTerminos ? `Si (${new Date().toLocaleString("es-MX")})` : "";
+}
+
+export async function addRowToSheet({ name, email, phone, message, aceptaTerminos }) {
+  const sheet = await getSheetCached(LEADS_CACHE_TITLE, getLeadsSheet);
+  // Agrega la columna de aceptacion si la hoja de Leads aun no la tiene
+  if (
+    !sheet.headerValues.some(
+      (hv) => hv.toLowerCase() === ACCEPT_TERMS_HEADER.toLowerCase()
+    )
+  ) {
+    await sheet.setHeaderRow([...sheet.headerValues, ACCEPT_TERMS_HEADER]);
+  }
   const h = (label) => matchHeader(sheet.headerValues, label);
   await sheet.addRow({
     [h("Fecha")]: new Date().toLocaleString("es-MX"),
@@ -51,7 +123,9 @@ export async function addRowToSheet({ name, email, phone, message }) {
     [h("Email")]: email,
     [h("Telefono")]: phone || "",
     [h("Mensaje")]: message,
+    [h(ACCEPT_TERMS_HEADER)]: acceptTermsValue(aceptaTerminos),
   });
+  invalidateRows(LEADS_CACHE_TITLE);
 }
 
 const ORDERS_SHEET_TITLE = "Pedidos";
@@ -66,6 +140,7 @@ const ORDERS_HEADERS = [
   "Direccion",
   "Ubicacion",
   "Metodo de pago",
+  "Acepto aviso de privacidad y terminos",
 ];
 
 async function getOrdersSheet(doc) {
@@ -99,9 +174,9 @@ export async function addOrderToSheet({
   telefono,
   direccion,
   ubicacion,
+  aceptaTerminos,
 }) {
-  const doc = await getDoc();
-  const sheet = await getOrdersSheet(doc);
+  const sheet = await getSheetCached(ORDERS_SHEET_TITLE, getOrdersSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
   const row = await sheet.addRow({
     [h("Fecha")]: new Date().toLocaleString("es-MX"),
@@ -113,15 +188,15 @@ export async function addOrderToSheet({
     [h("Telefono")]: telefono || "",
     [h("Direccion")]: direccion || "",
     [h("Ubicacion")]: ubicacion || "",
+    [h("Acepto aviso de privacidad y terminos")]: acceptTermsValue(aceptaTerminos),
   });
+  invalidateRows(ORDERS_SHEET_TITLE);
   return { rowNumber: row.rowNumber };
 }
 
 export async function getOrders() {
-  const doc = await getDoc();
-  const sheet = await getOrdersSheet(doc);
+  const { sheet, rows } = await getRowsCached(ORDERS_SHEET_TITLE, getOrdersSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     base: row.get(h("Base")) || "",
@@ -137,14 +212,13 @@ export async function getOrders() {
 }
 
 export async function updateOrderPaymentMethod(rowNumber, metodoPago) {
-  const doc = await getDoc();
-  const sheet = await getOrdersSheet(doc);
+  const { sheet, rows } = await getRowsCached(ORDERS_SHEET_TITLE, getOrdersSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   const row = rows.find((r) => r.rowNumber === rowNumber);
   if (!row) return false;
   row.set(h("Metodo de pago"), metodoPago);
   await row.save();
+  invalidateRows(ORDERS_SHEET_TITLE);
   return true;
 }
 
@@ -190,8 +264,7 @@ export async function addPurchase({
   financiadoPor,
   reembolsado,
 }) {
-  const doc = await getDoc();
-  const sheet = await getPurchasesSheet(doc);
+  const sheet = await getSheetCached(PURCHASES_SHEET_TITLE, getPurchasesSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const precio = Number(precioUnitario) || 0;
@@ -214,14 +287,16 @@ export async function addPurchase({
     [h("Reembolsado")]: reembolsado ? "Si" : "No",
   });
 
+  invalidateRows(PURCHASES_SHEET_TITLE);
   return { rowNumber: row.rowNumber, total };
 }
 
 export async function getPurchases() {
-  const doc = await getDoc();
-  const sheet = await getPurchasesSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    PURCHASES_SHEET_TITLE,
+    getPurchasesSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     producto: row.get(h("Producto")) || "",
@@ -239,14 +314,16 @@ export async function getPurchases() {
 // Marca (o desmarca) una compra existente como reembolsada, por numero de
 // fila (el mismo rowNumber que devuelve getPurchases()/addPurchase()).
 export async function updatePurchaseReembolso(rowNumber, reembolsado) {
-  const doc = await getDoc();
-  const sheet = await getPurchasesSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    PURCHASES_SHEET_TITLE,
+    getPurchasesSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   const row = rows.find((r) => r.rowNumber === rowNumber);
   if (!row) return false;
   row.set(h("Reembolsado"), reembolsado ? "Si" : "No");
   await row.save();
+  invalidateRows(PURCHASES_SHEET_TITLE);
   return true;
 }
 
@@ -284,8 +361,10 @@ async function getAyudaSemanalSheet(doc) {
 }
 
 export async function addAyudaSemanal({ fecha, monto, pagado }) {
-  const doc = await getDoc();
-  const sheet = await getAyudaSemanalSheet(doc);
+  const sheet = await getSheetCached(
+    AYUDA_SEMANAL_SHEET_TITLE,
+    getAyudaSemanalSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
@@ -297,15 +376,17 @@ export async function addAyudaSemanal({ fecha, monto, pagado }) {
     [h("Monto")]: Number(monto) || 0,
     [h("Pagado")]: pagado ? "Si" : "No",
   });
+  invalidateRows(AYUDA_SEMANAL_SHEET_TITLE);
 
   return { rowNumber: row.rowNumber };
 }
 
 export async function getAyudaSemanal() {
-  const doc = await getDoc();
-  const sheet = await getAyudaSemanalSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    AYUDA_SEMANAL_SHEET_TITLE,
+    getAyudaSemanalSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     monto: Number(row.get(h("Monto"))) || 0,
@@ -322,14 +403,16 @@ export async function getAyudaSemanalPendiente() {
 }
 
 export async function updateAyudaSemanalPagado(rowNumber, pagado) {
-  const doc = await getDoc();
-  const sheet = await getAyudaSemanalSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    AYUDA_SEMANAL_SHEET_TITLE,
+    getAyudaSemanalSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   const row = rows.find((r) => r.rowNumber === rowNumber);
   if (!row) return false;
   row.set(h("Pagado"), pagado ? "Si" : "No");
   await row.save();
+  invalidateRows(AYUDA_SEMANAL_SHEET_TITLE);
   return true;
 }
 
@@ -422,10 +505,11 @@ async function getProductosSheet(doc) {
 }
 
 export async function getProductos() {
-  const doc = await getDoc();
-  const sheet = await getProductosSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    PRODUCTOS_SHEET_TITLE,
+    getProductosSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     nombre: row.get(h("Nombre")) || "",
     unidad: row.get(h("Unidad")) || "",
@@ -437,11 +521,12 @@ export async function getProductos() {
 // (comparando sin acentos/mayusculas/espacios via normalizeName), para que el
 // select de Compras no termine con el mismo insumo duplicado varias veces.
 export async function addProducto(nombre, unidad, categoria) {
-  const doc = await getDoc();
-  const sheet = await getProductosSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    PRODUCTOS_SHEET_TITLE,
+    getProductosSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
 
-  const rows = await sheet.getRows();
   const key = normalizeName(nombre);
   const existente = rows.find((row) => normalizeName(row.get(h("Nombre"))) === key);
   if (existente) {
@@ -457,6 +542,7 @@ export async function addProducto(nombre, unidad, categoria) {
     [h("Unidad")]: unidad || "",
     [h("Categoria")]: categoria || "",
   });
+  invalidateRows(PRODUCTOS_SHEET_TITLE);
 
   return { nombre: nombre || "", unidad: unidad || "", categoria: categoria || "" };
 }
@@ -572,10 +658,11 @@ async function getParametrosCosteoSheet(doc) {
 // (getCostAnalysis). No se deben sumar en getFinancesSummary ni en gastos
 // fijos mensuales: el pago real del sueldo sigue siendo un Retiro aparte.
 export async function getParametrosCosteo() {
-  const doc = await getDoc();
-  const sheet = await getParametrosCosteoSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    PARAMETROS_COSTEO_SHEET_TITLE,
+    getParametrosCosteoSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     concepto: row.get(h("Concepto")) || "",
     valor: Number(row.get(h("Valor"))) || 0,
@@ -762,11 +849,11 @@ function buildSueldoInfo(sueldoSemanal, promedioPlatillosSemana) {
 }
 
 export async function getCostAnalysis({ desde, hasta } = {}) {
-  const doc = await getDoc();
-
-  const recipesSheet = await getRecipesSheet(doc);
+  const { sheet: recipesSheet, rows: recipeRows } = await getRowsCached(
+    RECIPES_SHEET_TITLE,
+    getRecipesSheet
+  );
   const rh = (label) => matchHeader(recipesSheet.headerValues, label);
-  const recipeRows = await recipesSheet.getRows();
   const recipes = recipeRows.map((row) => ({
     categoria: row.get(rh("Categoria")) || "",
     nombre: row.get(rh("Nombre")) || "",
@@ -775,9 +862,11 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
     unidad: row.get(rh("Unidad")) || "",
   }));
 
-  const pricesSheet = await getPricesSheet(doc);
+  const { sheet: pricesSheet, rows: priceRows } = await getRowsCached(
+    PRICES_SHEET_TITLE,
+    getPricesSheet
+  );
   const ph = (label) => matchHeader(pricesSheet.headerValues, label);
-  const priceRows = await pricesSheet.getRows();
   const basePrices = new Map();
   priceRows.forEach((row) => {
     const producto = row.get(ph("Producto")) || "";
@@ -991,10 +1080,11 @@ async function getFixedCostsSheet(doc) {
 }
 
 export async function getFixedCosts() {
-  const doc = await getDoc();
-  const sheet = await getFixedCostsSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    FIXED_COSTS_SHEET_TITLE,
+    getFixedCostsSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     concepto: row.get(h("Concepto")) || "",
     montoMensual: Number(row.get(h("Monto mensual"))) || 0,
@@ -1018,10 +1108,11 @@ async function getManualSalesSheet(doc) {
 }
 
 export async function getManualSales() {
-  const doc = await getDoc();
-  const sheet = await getManualSalesSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    MANUAL_SALES_SHEET_TITLE,
+    getManualSalesSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     concepto: row.get(h("Concepto")) || "",
@@ -1031,8 +1122,7 @@ export async function getManualSales() {
 }
 
 export async function addManualSale({ fecha, concepto, monto, metodoPago }) {
-  const doc = await getDoc();
-  const sheet = await getManualSalesSheet(doc);
+  const sheet = await getSheetCached(MANUAL_SALES_SHEET_TITLE, getManualSalesSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
@@ -1045,6 +1135,7 @@ export async function addManualSale({ fecha, concepto, monto, metodoPago }) {
     [h("Monto")]: Number(monto) || 0,
     [h("Metodo pago")]: metodoPago || "",
   });
+  invalidateRows(MANUAL_SALES_SHEET_TITLE);
 
   return { rowNumber: row.rowNumber };
 }
@@ -1052,7 +1143,8 @@ export async function addManualSale({ fecha, concepto, monto, metodoPago }) {
 // Resumen financiero mensual del año dado (por defecto, el actual). Combina
 // ventas de la pagina (Pedidos), ventas manuales, gasto en insumos (Compras),
 // gastos fijos (GastosFijos) y retiros/gastos (Retiros) para calcular la
-// utilidad neta por mes.
+// utilidad neta por mes. Cada elemento devuelto trae `mes` en base 1
+// (enero=1 ... diciembre=12), la convencion de todo el modulo de finanzas.
 export async function getFinancesSummary({ year } = {}) {
   const targetYear = Number(year) || new Date().getFullYear();
 
@@ -1119,11 +1211,13 @@ export async function getFinancesSummary({ year } = {}) {
     meses[fecha.getMonth()].gastoInsumos += Number(p.total) || 0;
   });
 
-  // Los retiros de categoria "Reembolso insumos" no se restan aqui: ese costo
-  // ya esta contado en gastoInsumos (Compras). El resto de retiros (sueldo,
-  // renta, gas, personal, otro) si son gasto real del negocio.
+  // Los retiros de categoria "Reembolso *" (Reembolso insumos, Reembolso Yo,
+  // Reembolso Papas Vanessa) no se restan aqui: ese costo ya esta contado en
+  // gastoInsumos (Compras) o es devolucion de financiamiento, no gasto nuevo.
+  // Usa el MISMO filtro (isRetiroOperativo) que getEstadoResultados y
+  // getPuntoDeEquilibrio para que los tres calculos no se desincronicen.
   retiros.forEach((r) => {
-    if (normalizeName(r.categoria) === normalizeName("Reembolso insumos")) return;
+    if (!isRetiroOperativo(r.categoria)) return;
     const fecha = parseFechaCompra(r.fecha);
     if (!fecha || fecha.getFullYear() !== targetYear) return;
     meses[fecha.getMonth()].gastoRetiros += Number(r.monto) || 0;
@@ -1154,7 +1248,7 @@ export async function getFinancesSummary({ year } = {}) {
     );
 
     return {
-      mes: m.mes,
+      mes: m.mes + 1,
       ventasPagina: m.ventasPagina,
       ventasManuales: m.ventasManuales,
       ventasTotales,
@@ -1186,10 +1280,8 @@ async function getRetirosSheet(doc) {
 }
 
 export async function getRetiros() {
-  const doc = await getDoc();
-  const sheet = await getRetirosSheet(doc);
+  const { sheet, rows } = await getRowsCached(RETIROS_SHEET_TITLE, getRetirosSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     concepto: row.get(h("Concepto")) || "",
@@ -1200,8 +1292,7 @@ export async function getRetiros() {
 }
 
 export async function addRetiro({ fecha, concepto, categoria, monto, deDonde }) {
-  const doc = await getDoc();
-  const sheet = await getRetirosSheet(doc);
+  const sheet = await getSheetCached(RETIROS_SHEET_TITLE, getRetirosSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
@@ -1215,6 +1306,7 @@ export async function addRetiro({ fecha, concepto, categoria, monto, deDonde }) 
     [h("Monto")]: Number(monto) || 0,
     [h("De donde")]: deDonde || "Efectivo",
   });
+  invalidateRows(RETIROS_SHEET_TITLE);
 
   return { rowNumber: row.rowNumber };
 }
@@ -1236,10 +1328,8 @@ async function getArqueosSheet(doc) {
 }
 
 export async function getArqueos() {
-  const doc = await getDoc();
-  const sheet = await getArqueosSheet(doc);
+  const { sheet, rows } = await getRowsCached(ARQUEOS_SHEET_TITLE, getArqueosSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     efectivoContado: Number(row.get(h("Efectivo contado"))) || 0,
@@ -1248,8 +1338,7 @@ export async function getArqueos() {
 }
 
 export async function addArqueo({ fecha, efectivoContado, cuentaContado }) {
-  const doc = await getDoc();
-  const sheet = await getArqueosSheet(doc);
+  const sheet = await getSheetCached(ARQUEOS_SHEET_TITLE, getArqueosSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
@@ -1261,6 +1350,7 @@ export async function addArqueo({ fecha, efectivoContado, cuentaContado }) {
     [h("Efectivo contado")]: Number(efectivoContado) || 0,
     [h("Cuenta contado")]: Number(cuentaContado) || 0,
   });
+  invalidateRows(ARQUEOS_SHEET_TITLE);
 
   return { rowNumber: row.rowNumber };
 }
@@ -1397,10 +1487,11 @@ async function getVentasPorPlatilloSheet(doc) {
 }
 
 export async function getVentasPorPlatillo() {
-  const doc = await getDoc();
-  const sheet = await getVentasPorPlatilloSheet(doc);
+  const { sheet, rows } = await getRowsCached(
+    VENTAS_PLATILLO_SHEET_TITLE,
+    getVentasPorPlatilloSheet
+  );
   const h = (label) => matchHeader(sheet.headerValues, label);
-  const rows = await sheet.getRows();
   return rows.map((row) => ({
     fecha: row.get(h("Fecha")) || "",
     pollo: Number(row.get(h("Pollo"))) || 0,
@@ -1435,12 +1526,15 @@ function isRetiroOperativo(categoria) {
 }
 
 // Estado de resultados de un mes: ventas, costo de ventas, utilidad bruta,
-// gastos de operacion desglosados por categoria y utilidad neta. `mes` es el
-// indice 0-11 (como en getFinancesSummary); sin argumentos usa el mes actual.
+// gastos de operacion desglosados por categoria y utilidad neta. `mes` va en
+// base 1 (enero=1 ... diciembre=12, como en getFinancesSummary); sin
+// argumentos usa el mes actual.
 export async function getEstadoResultados(mes, anio) {
   const hoy = new Date();
   const targetMes =
-    mes === undefined || mes === null || mes === "" ? hoy.getMonth() : Number(mes);
+    mes === undefined || mes === null || mes === ""
+      ? hoy.getMonth() + 1
+      : Number(mes);
   const targetAnio = Number(anio) || hoy.getFullYear();
 
   const [orders, manualSales, purchases, retiros, fixedCosts] = await Promise.all([
@@ -1453,7 +1547,8 @@ export async function getEstadoResultados(mes, anio) {
 
   function enMes(fechaValor) {
     const f = parseFechaCompra(fechaValor);
-    return f && f.getFullYear() === targetAnio && f.getMonth() === targetMes;
+    // getMonth() es base 0; targetMes llega en base 1 (enero=1).
+    return f && f.getFullYear() === targetAnio && f.getMonth() + 1 === targetMes;
   }
 
   const ventasSitio = orders.reduce(
@@ -1648,7 +1743,7 @@ export async function getPuntoDeEquilibrio() {
     gastosFijosMensuales,
     puntoEquilibrioPlatillos,
     platillosVendidosMes,
-    mes: hoy.getMonth(),
+    mes: hoy.getMonth() + 1,
     anio: hoy.getFullYear(),
     arribaDelEquilibrio:
       puntoEquilibrioPlatillos === null

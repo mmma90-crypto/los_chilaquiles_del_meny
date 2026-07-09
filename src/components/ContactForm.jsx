@@ -9,6 +9,7 @@ function isValidEmail(email) {
 
 export default function ContactForm() {
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [errors, setErrors] = useState({});
   const [status, setStatus] = useState("idle"); // idle | loading | success | error
   const [serverError, setServerError] = useState("");
@@ -59,7 +60,7 @@ export default function ContactForm() {
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, aceptaTerminos: acceptedTerms }),
       });
 
       const data = await res.json();
@@ -72,6 +73,7 @@ export default function ContactForm() {
 
       setStatus("success");
       setForm({ name: "", email: "", phone: "", message: "" });
+      setAcceptedTerms(false);
       setErrors({});
     } catch {
       setServerError(formConfig.errorMessage);
@@ -193,9 +195,39 @@ export default function ContactForm() {
             )}
           </div>
 
+          {/* Aceptacion de aviso de privacidad y terminos */}
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)}
+              className="mt-1 h-4 w-4 shrink-0 accent-salsa-700 cursor-pointer"
+            />
+            <span className="text-sm text-stone-600">
+              He leído y acepto el{" "}
+              <a
+                href="/aviso-de-privacidad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-stone-700 hover:text-salsa-700"
+              >
+                Aviso de Privacidad
+              </a>{" "}
+              y los{" "}
+              <a
+                href="/terminos-y-condiciones"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-stone-700 hover:text-salsa-700"
+              >
+                Términos y Condiciones
+              </a>
+            </span>
+          </label>
+
           <button
             type="submit"
-            disabled={status === "loading"}
+            disabled={status === "loading" || !acceptedTerms}
             className="w-full py-3.5 bg-salsa-700 text-white font-medium rounded-full hover:bg-salsa-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-salsa-700/20"
           >
             {status === "loading" ? formConfig.sendingButton : formConfig.submitButton}
