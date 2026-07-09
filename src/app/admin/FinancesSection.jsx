@@ -460,6 +460,7 @@ function EstadoResultadosSection({ meses }) {
   // coincida con la seleccion actual, la seccion se muestra como "cargando".
   const [resultado, setResultado] = useState(null);
   const [showPrint, setShowPrint] = useState(false);
+  const [peVista, setPeVista] = useState("mes");
 
   const anios = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
   const requestKey = `${mes}-${anio}`;
@@ -504,9 +505,13 @@ function EstadoResultadosSection({ meses }) {
 
   const estado = data?.estado;
   const pe = data?.puntoEquilibrio;
+  const peAnual = data?.puntoEquilibrioAnual;
+  // Vista activa de la tarjeta de punto de equilibrio: el mes seleccionado
+  // arriba, o el promedio anual de todos los meses con datos.
+  const peActivo = peVista === "anual" ? peAnual : pe;
   const equilibrioPlatillos =
-    pe?.puntoEquilibrioPlatillos != null
-      ? Math.ceil(pe.puntoEquilibrioPlatillos)
+    peActivo?.puntoEquilibrioPlatillos != null
+      ? Math.ceil(peActivo.puntoEquilibrioPlatillos)
       : null;
 
   return (
@@ -577,16 +582,40 @@ function EstadoResultadosSection({ meses }) {
 
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="bg-white border border-gray-200 rounded-2xl p-5">
-          <p className="text-sm text-gray-500 mb-1">Punto de equilibrio</p>
-          {!pe ? (
+          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+            <p className="text-sm text-gray-500">Punto de equilibrio</p>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setPeVista("mes")}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                  peVista === "mes" ? "text-white" : "text-gray-500 bg-white"
+                }`}
+                style={peVista === "mes" ? { backgroundColor: "#7f1d1d" } : undefined}
+              >
+                Este mes
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeVista("anual")}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                  peVista === "anual" ? "text-white" : "text-gray-500 bg-white"
+                }`}
+                style={peVista === "anual" ? { backgroundColor: "#7f1d1d" } : undefined}
+              >
+                Promedio anual
+              </button>
+            </div>
+          </div>
+          {!peActivo ? (
             <p className="text-sm text-gray-400">
               {loading ? "Calculando..." : "Sin datos suficientes."}
             </p>
           ) : equilibrioPlatillos === null ? (
             <p className="text-sm text-red-700">
               No se puede calcular: el costo variable promedio (
-              {formatCurrency(pe.costoVariablePromedio)}) es igual o mayor al precio
-              promedio de venta ({formatCurrency(pe.precioPromedio)}).
+              {formatCurrency(peActivo.costoVariablePromedio)}) es igual o mayor al
+              precio promedio de venta ({formatCurrency(peActivo.precioPromedio)}).
             </p>
           ) : (
             <>
@@ -598,16 +627,32 @@ function EstadoResultadosSection({ meses }) {
               </p>
               <p
                 className={`text-sm font-medium mt-1 ${
-                  pe.arribaDelEquilibrio ? "text-green-700" : "text-red-700"
+                  peActivo.arribaDelEquilibrio ? "text-green-700" : "text-red-700"
                 }`}
               >
-                {MESES_NOMBRES[pe.mes - 1]}: {pe.platillosVendidosMes} vendidos —{" "}
-                {pe.arribaDelEquilibrio ? "arriba" : "abajo"} del equilibrio
+                {peVista === "anual" ? (
+                  <>
+                    Promedio {peAnual.anio}:{" "}
+                    {Math.round(peAnual.platillosPromedioMensual)} platillos/mes
+                    vendidos — {peAnual.arribaDelEquilibrio ? "arriba" : "abajo"} del
+                    equilibrio
+                  </>
+                ) : (
+                  <>
+                    {MESES_NOMBRES[pe.mes - 1]} {pe.anio}: {pe.platillosVendidosMes}{" "}
+                    vendidos — {pe.arribaDelEquilibrio ? "arriba" : "abajo"} del
+                    equilibrio
+                  </>
+                )}
               </p>
               <p className="text-xs text-gray-400 mt-2">
-                Precio promedio {formatCurrency(pe.precioPromedio)} · Costo variable{" "}
-                {formatCurrency(pe.costoVariablePromedio)} · Gastos fijos{" "}
-                {formatCurrency(pe.gastosFijosMensuales)}/mes
+                Precio promedio {formatCurrency(peActivo.precioPromedio)} · Costo
+                variable {formatCurrency(peActivo.costoVariablePromedio)} · Gastos
+                fijos {formatCurrency(peActivo.gastosFijosMensuales)}/mes
+                {peVista === "anual" &&
+                  ` · Promedio de ${peAnual.mesesConVentas} ${
+                    peAnual.mesesConVentas === 1 ? "mes" : "meses"
+                  } con ventas`}
               </p>
             </>
           )}

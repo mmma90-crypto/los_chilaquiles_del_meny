@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getEstadoResultados, getPuntoDeEquilibrio } from "@/libs/google-sheets";
+import {
+  getEstadoResultados,
+  getPuntoDeEquilibrio,
+  getPuntoDeEquilibrioAnual,
+} from "@/libs/google-sheets";
 
 function makeToken(password) {
   return Buffer.from(password).toString("base64");
@@ -26,11 +30,12 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const mes = searchParams.get("mes");
     const anio = searchParams.get("anio");
-    const [estado, puntoEquilibrio] = await Promise.all([
+    const [estado, puntoEquilibrio, puntoEquilibrioAnual] = await Promise.all([
       getEstadoResultados(mes, anio),
-      getPuntoDeEquilibrio(),
+      getPuntoDeEquilibrio(mes, anio),
+      getPuntoDeEquilibrioAnual(anio),
     ]);
-    return NextResponse.json({ estado, puntoEquilibrio });
+    return NextResponse.json({ estado, puntoEquilibrio, puntoEquilibrioAnual });
   } catch (error) {
     console.error("Error al calcular el estado de resultados:", error);
     // Incluye el mensaje real del error para poder diagnosticar problemas

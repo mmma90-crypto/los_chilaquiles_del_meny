@@ -1647,19 +1647,10 @@ function costoPromedioPorProteina(combinaciones, proteina) {
   return match.reduce((sum, c) => sum + c.costo, 0) / match.length;
 }
 
-// Punto de equilibrio mensual: cuantos platillos hay que vender al mes para
-// cubrir los gastos fijos, dado el margen de contribucion promedio (precio
-// promedio ponderado por la mezcla real de ventas menos el costo variable
-// promedio de la vista "actual" del costeo).
-export async function getPuntoDeEquilibrio() {
-  const [ventas, analysis, fixedCosts, retiros, ventasPorFecha] = await Promise.all([
-    getVentasPorPlatillo(),
-    getCostAnalysis(),
-    getFixedCosts(),
-    getRetiros(),
-    getPlatillosVendidosPorFecha(),
-  ]);
-
+// Precio de venta y costo variable promedio ponderados por la mezcla real de
+// ventas de VentasPorPlatillo (historico completo). Compartido entre el punto
+// de equilibrio mensual y el anual para que ambos usen el mismo margen.
+function computeMargenPonderado(ventas, analysis) {
   const precios = getPreciosPlatilloMenu();
   const categorias = ["pollo", "chicharron", "huevo", "barbacoa", "sencillo"];
 
@@ -1697,20 +1688,57 @@ export async function getPuntoDeEquilibrio() {
         ) / totalVendidosHistorico
       : costoGeneral;
 
+  return { precioPromedio, costoVariablePromedio };
+}
+
+// Total de retiros operativos agrupados por mes; la clave es
+// anio * 12 + mesBase0, para poder ordenar y filtrar por año facilmente.
+function retirosOperativosPorMes(retiros) {
+  const porMes = new Map();
+  retiros.forEach((r) => {
+    if (!isRetiroOperativo(r.categoria)) return;
+    const f = parseFechaCompra(r.fecha);
+    if (!f) return;
+    const key = f.getFullYear() * 12 + f.getMonth();
+    porMes.set(key, (porMes.get(key) || 0) + (Number(r.monto) || 0));
+  });
+  return porMes;
+}
+
+// Punto de equilibrio mensual: cuantos platillos hay que vender al mes para
+// cubrir los gastos fijos, dado el margen de contribucion promedio (precio
+// promedio ponderado por la mezcla real de ventas menos el costo variable
+// promedio de la vista "actual" del costeo). `mes` va en base 1 (enero=1),
+// igual que getEstadoResultados; sin argumentos usa el mes actual. Los
+// platillos vendidos se comparan contra ese mes especifico.
+export async function getPuntoDeEquilibrio(mes, anio) {
+  const hoy = new Date();
+  const targetMes =
+    mes === undefined || mes === null || mes === ""
+      ? hoy.getMonth() + 1
+      : Number(mes);
+  const targetAnio = Number(anio) || hoy.getFullYear();
+
+  const [ventas, analysis, fixedCosts, retiros, ventasPorFecha] = await Promise.all([
+    getVentasPorPlatillo(),
+    getCostAnalysis(),
+    getFixedCosts(),
+    getRetiros(),
+    getPlatillosVendidosPorFecha(),
+  ]);
+
+  const { precioPromedio, costoVariablePromedio } = computeMargenPonderado(
+    ventas,
+    analysis
+  );
+
   // Gastos fijos mensuales: GastosFijos + promedio mensual de los retiros
   // operativos (hasta los ultimos 6 meses con retiros registrados).
   const gastosFijosSheet = fixedCosts.reduce(
     (sum, c) => sum + (Number(c.montoMensual) || 0),
     0
   );
-  const retirosPorMes = new Map();
-  retiros.forEach((r) => {
-    if (!isRetiroOperativo(r.categoria)) return;
-    const f = parseFechaCompra(r.fecha);
-    if (!f) return;
-    const key = f.getFullYear() * 12 + f.getMonth();
-    retirosPorMes.set(key, (retirosPorMes.get(key) || 0) + (Number(r.monto) || 0));
-  });
+  const retirosPorMes = retirosOperativosPorMes(retiros);
   const mesesRecientes = Array.from(retirosPorMes.keys())
     .sort((a, b) => b - a)
     .slice(0, 6);
@@ -1725,14 +1753,12 @@ export async function getPuntoDeEquilibrio() {
   const puntoEquilibrioPlatillos =
     margenContribucion > 0 ? gastosFijosMensuales / margenContribucion : null;
 
-  // Platillos realmente vendidos en el mes actual (VentasPorPlatillo o, en su
-  // defecto, conteo de Pedidos — ya resuelto por getPlatillosVendidosPorFecha).
-  const hoy = new Date();
+  // Platillos realmente vendidos en el mes solicitado (VentasPorPlatillo o, en
+  // su defecto, conteo de Pedidos — ya resuelto por getPlatillosVendidosPorFecha).
   const platillosVendidosMes = ventasPorFecha
     .filter(
       ({ fecha }) =>
-        fecha.getFullYear() === hoy.getFullYear() &&
-        fecha.getMonth() === hoy.getMonth()
+        fecha.getFullYear() === targetAnio && fecha.getMonth() + 1 === targetMes
     )
     .reduce((sum, v) => sum + v.cantidad, 0);
 
@@ -1743,12 +1769,88 @@ export async function getPuntoDeEquilibrio() {
     gastosFijosMensuales,
     puntoEquilibrioPlatillos,
     platillosVendidosMes,
-    mes: hoy.getMonth() + 1,
-    anio: hoy.getFullYear(),
+    mes: targetMes,
+    anio: targetAnio,
     arribaDelEquilibrio:
       puntoEquilibrioPlatillos === null
         ? null
         : platillosVendidosMes >= puntoEquilibrioPlatillos,
+  };
+}
+
+// Punto de equilibrio anual (promedio): mismo margen de contribucion que la
+// vista mensual, pero los gastos fijos usan el promedio de retiros operativos
+// de TODOS los meses con datos del año pedido (sin tope de 6 meses), y la
+// comparacion es contra el promedio real de platillos vendidos por mes en ese
+// año (total del año / meses con ventas registradas).
+export async function getPuntoDeEquilibrioAnual(anio) {
+  const hoy = new Date();
+  const targetAnio = Number(anio) || hoy.getFullYear();
+
+  const [ventas, analysis, fixedCosts, retiros, ventasPorFecha] = await Promise.all([
+    getVentasPorPlatillo(),
+    getCostAnalysis(),
+    getFixedCosts(),
+    getRetiros(),
+    getPlatillosVendidosPorFecha(),
+  ]);
+
+  const { precioPromedio, costoVariablePromedio } = computeMargenPonderado(
+    ventas,
+    analysis
+  );
+
+  const gastosFijosSheet = fixedCosts.reduce(
+    (sum, c) => sum + (Number(c.montoMensual) || 0),
+    0
+  );
+  const retirosPorMes = retirosOperativosPorMes(retiros);
+  // La clave del mapa es anio * 12 + mesBase0, asi que dividir entre 12
+  // recupera el año de cada mes registrado.
+  const mesesRetirosAnio = Array.from(retirosPorMes.keys()).filter(
+    (k) => Math.floor(k / 12) === targetAnio
+  );
+  const promedioRetirosMensual =
+    mesesRetirosAnio.length > 0
+      ? mesesRetirosAnio.reduce((sum, k) => sum + retirosPorMes.get(k), 0) /
+        mesesRetirosAnio.length
+      : 0;
+  const gastosFijosMensuales = gastosFijosSheet + promedioRetirosMensual;
+
+  const margenContribucion = precioPromedio - costoVariablePromedio;
+  const puntoEquilibrioPlatillos =
+    margenContribucion > 0 ? gastosFijosMensuales / margenContribucion : null;
+
+  // Promedio real de platillos vendidos por mes en el año: total de platillos
+  // del año entre el numero de meses que tienen al menos una venta registrada.
+  const platillosPorMes = new Map();
+  ventasPorFecha.forEach(({ fecha, cantidad }) => {
+    if (fecha.getFullYear() !== targetAnio) return;
+    const key = fecha.getMonth();
+    platillosPorMes.set(key, (platillosPorMes.get(key) || 0) + cantidad);
+  });
+  const mesesConVentas = platillosPorMes.size;
+  const totalPlatillosAnio = Array.from(platillosPorMes.values()).reduce(
+    (sum, v) => sum + v,
+    0
+  );
+  const platillosPromedioMensual =
+    mesesConVentas > 0 ? totalPlatillosAnio / mesesConVentas : 0;
+
+  return {
+    precioPromedio,
+    costoVariablePromedio,
+    margenContribucion,
+    gastosFijosMensuales,
+    puntoEquilibrioPlatillos,
+    platillosPromedioMensual,
+    totalPlatillosAnio,
+    mesesConVentas,
+    anio: targetAnio,
+    arribaDelEquilibrio:
+      puntoEquilibrioPlatillos === null
+        ? null
+        : platillosPromedioMensual >= puntoEquilibrioPlatillos,
   };
 }
 
