@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { siteConfig } from "@/config/site";
 
 const MESES_NOMBRES = [
   "Enero",
@@ -141,6 +142,8 @@ export default function FinancesSection({ initialFinances, error }) {
 
   return (
     <div className="max-w-7xl mx-auto px-6 pt-8 pb-12">
+      {!error && <EstadoResultadosSection meses={meses} />}
+
       {!error && (
         <div className="mb-8">
           <h2 className="text-xl font-bold text-gray-900 mb-1">
@@ -444,6 +447,330 @@ export default function FinancesSection({ initialFinances, error }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function EstadoResultadosSection({ meses }) {
+  const now = new Date();
+  const [mes, setMes] = useState(now.getMonth());
+  const [anio, setAnio] = useState(now.getFullYear());
+  // `resultado.key` indica a que mes/año corresponde lo cargado; mientras no
+  // coincida con la seleccion actual, la seccion se muestra como "cargando".
+  const [resultado, setResultado] = useState(null);
+  const [showPrint, setShowPrint] = useState(false);
+
+  const anios = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
+  const requestKey = `${mes}-${anio}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/estado-resultados?mes=${mes}&anio=${anio}`)
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || "No pudimos cargar el estado de resultados.");
+        }
+        if (!cancelled) setResultado({ key: requestKey, data: json });
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setResultado({
+            key: requestKey,
+            error: e.message || "No pudimos cargar el estado de resultados.",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mes, anio, requestKey]);
+
+  const loading = resultado?.key !== requestKey;
+  const loadError = loading ? null : resultado?.error || null;
+  const data = loading ? null : resultado?.data || null;
+
+  // Margen neto promedio de los ultimos 6 meses con ventas (o los que haya).
+  const margenPromedio = useMemo(() => {
+    const conVentas = meses.filter((m) => (m.ventasTotales || 0) > 0);
+    const ultimos = conVentas.slice(-6);
+    if (ultimos.length === 0) return null;
+    return {
+      valor: ultimos.reduce((s, m) => s + (m.margenNeto || 0), 0) / ultimos.length,
+      numMeses: ultimos.length,
+    };
+  }, [meses]);
+
+  const estado = data?.estado;
+  const pe = data?.puntoEquilibrio;
+  const equilibrioPlatillos =
+    pe?.puntoEquilibrioPlatillos != null
+      ? Math.ceil(pe.puntoEquilibrioPlatillos)
+      : null;
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">
+            Estado de resultados
+          </h2>
+          <p className="text-sm text-gray-500">
+            Ventas, costos y utilidades del mes elegido.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={mes}
+            onChange={(e) => setMes(Number(e.target.value))}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+          >
+            {MESES_NOMBRES.map((nombre, i) => (
+              <option key={nombre} value={i}>
+                {nombre}
+              </option>
+            ))}
+          </select>
+          <select
+            value={anio}
+            onChange={(e) => setAnio(Number(e.target.value))}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+          >
+            {anios.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setShowPrint(true)}
+            disabled={!estado || loading}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-opacity flex items-center gap-1.5"
+            style={{ backgroundColor: "#7f1d1d" }}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+              />
+            </svg>
+            Exportar PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
+        {loading ? (
+          <p className="text-sm text-gray-500 py-4">Calculando estado de resultados...</p>
+        ) : loadError ? (
+          <p className="text-sm text-red-700 py-4">{loadError}</p>
+        ) : estado ? (
+          <div className="max-w-2xl">
+            <EstadoResultadosDetalle estado={estado} />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <p className="text-sm text-gray-500 mb-1">Punto de equilibrio</p>
+          {!pe ? (
+            <p className="text-sm text-gray-400">
+              {loading ? "Calculando..." : "Sin datos suficientes."}
+            </p>
+          ) : equilibrioPlatillos === null ? (
+            <p className="text-sm text-red-700">
+              No se puede calcular: el costo variable promedio (
+              {formatCurrency(pe.costoVariablePromedio)}) es igual o mayor al precio
+              promedio de venta ({formatCurrency(pe.precioPromedio)}).
+            </p>
+          ) : (
+            <>
+              <p className="text-2xl font-bold text-gray-900">
+                {equilibrioPlatillos}{" "}
+                <span className="text-sm font-medium text-gray-500">
+                  platillos/mes
+                </span>
+              </p>
+              <p
+                className={`text-sm font-medium mt-1 ${
+                  pe.arribaDelEquilibrio ? "text-green-700" : "text-red-700"
+                }`}
+              >
+                {MESES_NOMBRES[pe.mes]}: {pe.platillosVendidosMes} vendidos —{" "}
+                {pe.arribaDelEquilibrio ? "arriba" : "abajo"} del equilibrio
+              </p>
+              <p className="text-xs text-gray-400 mt-2">
+                Precio promedio {formatCurrency(pe.precioPromedio)} · Costo variable{" "}
+                {formatCurrency(pe.costoVariablePromedio)} · Gastos fijos{" "}
+                {formatCurrency(pe.gastosFijosMensuales)}/mes
+              </p>
+            </>
+          )}
+        </div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <p className="text-sm text-gray-500 mb-1">Margen neto promedio</p>
+          {margenPromedio === null ? (
+            <p className="text-sm text-gray-400">Sin meses con ventas todavia.</p>
+          ) : (
+            <>
+              <p
+                className={`text-2xl font-bold ${
+                  margenPromedio.valor >= 0 ? "text-green-700" : "text-red-700"
+                }`}
+              >
+                {formatPercent(margenPromedio.valor)}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Promedio de los ultimos {margenPromedio.numMeses}{" "}
+                {margenPromedio.numMeses === 1 ? "mes" : "meses"} con ventas.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+
+      {showPrint && estado && (
+        <EstadoResultadosPrint estado={estado} onClose={() => setShowPrint(false)} />
+      )}
+    </div>
+  );
+}
+
+// Desglose del estado de resultados, compartido entre la tarjeta del panel y
+// la vista de impresion.
+function EstadoResultadosDetalle({ estado }) {
+  const brutaPositiva = estado.utilidadBruta >= 0;
+  const netaPositiva = estado.utilidadNeta >= 0;
+
+  return (
+    <div className="text-sm">
+      <div className="flex justify-between py-2 text-gray-600">
+        <span>Ventas del sitio</span>
+        <span>{formatCurrency(estado.ventasSitio)}</span>
+      </div>
+      <div className="flex justify-between py-2 text-gray-600">
+        <span>Ventas manuales</span>
+        <span>{formatCurrency(estado.ventasManuales)}</span>
+      </div>
+      <div className="flex justify-between py-2 border-t border-gray-200 font-semibold text-gray-900">
+        <span>Ventas totales</span>
+        <span>{formatCurrency(estado.ventasTotales)}</span>
+      </div>
+      <div className="flex justify-between py-2 text-gray-600">
+        <span>Costo de ventas (insumos)</span>
+        <span>−{formatCurrency(estado.costoVentas)}</span>
+      </div>
+      <div
+        className={`flex justify-between items-center rounded-lg px-3 py-2.5 my-2 font-semibold ${
+          brutaPositiva ? "bg-green-50 text-green-800" : "bg-red-100 text-red-800"
+        }`}
+      >
+        <span>Utilidad bruta</span>
+        <span>
+          {formatCurrency(estado.utilidadBruta)}{" "}
+          <span className="text-xs font-medium">
+            ({formatPercent(estado.margenBruto)})
+          </span>
+        </span>
+      </div>
+      <p className="font-medium text-gray-700 pt-2 pb-1">Gastos de operacion</p>
+      {estado.gastosOperacion.length === 0 ? (
+        <p className="pl-4 py-1.5 text-gray-400">Sin gastos registrados este mes.</p>
+      ) : (
+        estado.gastosOperacion.map((g) => (
+          <div
+            key={g.categoria}
+            className="flex justify-between py-1.5 pl-4 text-gray-600"
+          >
+            <span>{g.categoria}</span>
+            <span>−{formatCurrency(g.monto)}</span>
+          </div>
+        ))
+      )}
+      <div className="flex justify-between py-2 border-t border-gray-200 font-medium text-gray-900">
+        <span>Total gastos de operacion</span>
+        <span>−{formatCurrency(estado.totalGastosOperacion)}</span>
+      </div>
+      <div
+        className={`flex justify-between items-center rounded-lg px-3 py-2.5 mt-2 font-bold ${
+          netaPositiva ? "bg-blue-50 text-blue-800" : "bg-red-100 text-red-800"
+        }`}
+      >
+        <span>Utilidad neta</span>
+        <span>
+          {formatCurrency(estado.utilidadNeta)}{" "}
+          <span className="text-xs font-semibold">
+            ({formatPercent(estado.margenNeto)})
+          </span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Vista de impresion: cubre toda la pantalla con solo el estado de resultados
+// y dispara window.print() al abrirse; el usuario elige "Guardar como PDF" en
+// el dialogo del navegador. El <style> oculta el resto del panel al imprimir.
+function EstadoResultadosPrint({ estado, onClose }) {
+  useEffect(() => {
+    const timer = setTimeout(() => window.print(), 400);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <div id="estado-resultados-print" className="fixed inset-0 z-50 bg-white overflow-auto">
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #estado-resultados-print, #estado-resultados-print * { visibility: visible; }
+          #estado-resultados-print {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: auto;
+            overflow: visible;
+          }
+        }
+      `}</style>
+      <div className="print:hidden flex justify-end gap-2 px-6 py-4 border-b border-gray-100">
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white"
+          style={{ backgroundColor: "#7f1d1d" }}
+        >
+          Imprimir / Guardar PDF
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-300 hover:bg-gray-50"
+        >
+          Cerrar
+        </button>
+      </div>
+      <div className="max-w-2xl mx-auto px-8 py-10">
+        <div
+          className="border-b-2 pb-4 mb-6"
+          style={{ borderColor: "#7f1d1d" }}
+        >
+          <p className="text-2xl font-bold" style={{ color: "#7f1d1d" }}>
+            {siteConfig.name}
+          </p>
+          <p className="text-lg font-semibold text-gray-900 mt-1">
+            Estado de resultados — {MESES_NOMBRES[estado.mes]} {estado.anio}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Generado el {new Date().toLocaleDateString("es-MX")}
+          </p>
+        </div>
+        <EstadoResultadosDetalle estado={estado} />
+      </div>
     </div>
   );
 }

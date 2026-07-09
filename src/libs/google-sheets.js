@@ -1,5 +1,6 @@
 import { GoogleSpreadsheet } from "google-spreadsheet";
 import { JWT } from "google-auth-library";
+import { menuConfig } from "@/config/menu";
 
 function getAuth() {
   return new JWT({
@@ -1425,6 +1426,236 @@ const PLATILLOS_CATEGORIAS = [
   { key: "extraPrensado", label: "Extra prensado" },
   { key: "extraPollo", label: "Extra pollo" },
 ];
+
+// Los retiros cuya categoria empieza con "Reembolso" (Reembolso insumos,
+// Reembolso Yo, Reembolso Papas Vanessa) no son gasto operativo nuevo: ese
+// costo ya esta contado en Costo de ventas (Compras) o es financiamiento.
+function isRetiroOperativo(categoria) {
+  return !normalizeName(categoria).startsWith("reembolso");
+}
+
+// Estado de resultados de un mes: ventas, costo de ventas, utilidad bruta,
+// gastos de operacion desglosados por categoria y utilidad neta. `mes` es el
+// indice 0-11 (como en getFinancesSummary); sin argumentos usa el mes actual.
+export async function getEstadoResultados(mes, anio) {
+  const hoy = new Date();
+  const targetMes =
+    mes === undefined || mes === null || mes === "" ? hoy.getMonth() : Number(mes);
+  const targetAnio = Number(anio) || hoy.getFullYear();
+
+  const [orders, manualSales, purchases, retiros, fixedCosts] = await Promise.all([
+    getOrders(),
+    getManualSales(),
+    getPurchases(),
+    getRetiros(),
+    getFixedCosts(),
+  ]);
+
+  function enMes(fechaValor) {
+    const f = parseFechaCompra(fechaValor);
+    return f && f.getFullYear() === targetAnio && f.getMonth() === targetMes;
+  }
+
+  const ventasSitio = orders.reduce(
+    (sum, o) => (enMes(o.fecha) ? sum + (Number(o.total) || 0) : sum),
+    0
+  );
+  const ventasManuales = manualSales.reduce(
+    (sum, v) => (enMes(v.fecha) ? sum + (Number(v.monto) || 0) : sum),
+    0
+  );
+  const ventasTotales = ventasSitio + ventasManuales;
+
+  const costoVentas = purchases.reduce((sum, p) => {
+    if ((Number(p.precioUnitario) || 0) <= 0) return sum; // ignora filas sin precio
+    return enMes(p.fecha) ? sum + (Number(p.total) || 0) : sum;
+  }, 0);
+
+  const utilidadBruta = ventasTotales - costoVentas;
+  const margenBruto = ventasTotales > 0 ? (utilidadBruta / ventasTotales) * 100 : 0;
+
+  // Gastos de operacion: retiros operativos del mes agrupados por categoria
+  // (conservando la etiqueta original) mas los conceptos de GastosFijos.
+  const gastosMap = new Map();
+  function agregarGasto(categoria, monto) {
+    const label = categoria || "Otro";
+    const key = normalizeName(label);
+    const existing = gastosMap.get(key);
+    if (existing) existing.monto += monto;
+    else gastosMap.set(key, { categoria: label, monto });
+  }
+
+  retiros.forEach((r) => {
+    if (!isRetiroOperativo(r.categoria)) return;
+    if (!enMes(r.fecha)) return;
+    agregarGasto(r.categoria, Number(r.monto) || 0);
+  });
+
+  fixedCosts.forEach((c) => {
+    const monto = Number(c.montoMensual) || 0;
+    if (monto <= 0) return;
+    agregarGasto(c.concepto, monto);
+  });
+
+  const gastosOperacion = Array.from(gastosMap.values()).sort(
+    (a, b) => b.monto - a.monto
+  );
+  const totalGastosOperacion = gastosOperacion.reduce((sum, g) => sum + g.monto, 0);
+
+  const utilidadNeta = utilidadBruta - totalGastosOperacion;
+  const margenNeto = ventasTotales > 0 ? (utilidadNeta / ventasTotales) * 100 : 0;
+
+  return {
+    mes: targetMes,
+    anio: targetAnio,
+    ventasSitio,
+    ventasManuales,
+    ventasTotales,
+    costoVentas,
+    utilidadBruta,
+    margenBruto,
+    gastosOperacion,
+    totalGastosOperacion,
+    utilidadNeta,
+    margenNeto,
+  };
+}
+
+// Precio de venta por categoria de VentasPorPlatillo segun el menu publico:
+// base + proteina correspondiente ("sencillo" es solo la base).
+function getPreciosPlatilloMenu() {
+  const base = Number(menuConfig.steps.base.price) || 0;
+  const proteinas = new Map(
+    (menuConfig.steps.protein.options || []).map((o) => [
+      normalizeName(o.id),
+      Number(o.price) || 0,
+    ])
+  );
+  return {
+    pollo: base + (proteinas.get("pollo") || 0),
+    chicharron: base + (proteinas.get("chicharron") || 0),
+    huevo: base + (proteinas.get("huevo") || 0),
+    barbacoa: base + (proteinas.get("barbacoa") || 0),
+    sencillo: base,
+  };
+}
+
+// Costo promedio de las combinaciones de getCostAnalysis() para una proteina
+// dada (null = platillo sencillo, sin proteina). Devuelve null si no hay
+// combinaciones de esa proteina.
+function costoPromedioPorProteina(combinaciones, proteina) {
+  const key = proteina ? normalizeName(proteina) : null;
+  const match = combinaciones.filter((c) =>
+    key ? normalizeName(c.proteina || "") === key : !c.proteina
+  );
+  if (match.length === 0) return null;
+  return match.reduce((sum, c) => sum + c.costo, 0) / match.length;
+}
+
+// Punto de equilibrio mensual: cuantos platillos hay que vender al mes para
+// cubrir los gastos fijos, dado el margen de contribucion promedio (precio
+// promedio ponderado por la mezcla real de ventas menos el costo variable
+// promedio de la vista "actual" del costeo).
+export async function getPuntoDeEquilibrio() {
+  const [ventas, analysis, fixedCosts, retiros, ventasPorFecha] = await Promise.all([
+    getVentasPorPlatillo(),
+    getCostAnalysis(),
+    getFixedCosts(),
+    getRetiros(),
+    getPlatillosVendidosPorFecha(),
+  ]);
+
+  const precios = getPreciosPlatilloMenu();
+  const categorias = ["pollo", "chicharron", "huevo", "barbacoa", "sencillo"];
+
+  const mezcla = categorias.map((key) => ({
+    key,
+    cantidad: ventas.reduce((sum, v) => sum + (Number(v[key]) || 0), 0),
+  }));
+  const totalVendidosHistorico = mezcla.reduce((sum, m) => sum + m.cantidad, 0);
+
+  // Precio promedio: ponderado por la mezcla real de VentasPorPlatillo; si no
+  // hay ventas registradas, promedio simple de los precios del menu.
+  const precioPromedio =
+    totalVendidosHistorico > 0
+      ? mezcla.reduce((sum, m) => sum + m.cantidad * precios[m.key], 0) /
+        totalVendidosHistorico
+      : categorias.reduce((sum, k) => sum + precios[k], 0) / categorias.length;
+
+  const combinaciones = analysis.actual?.combinaciones || [];
+  const costoGeneral =
+    combinaciones.length > 0
+      ? combinaciones.reduce((sum, c) => sum + c.costo, 0) / combinaciones.length
+      : 0;
+  const costoPorCategoria = {
+    pollo: costoPromedioPorProteina(combinaciones, "Pollo"),
+    chicharron: costoPromedioPorProteina(combinaciones, "Chicharron"),
+    huevo: costoPromedioPorProteina(combinaciones, "Huevo"),
+    barbacoa: costoPromedioPorProteina(combinaciones, "Barbacoa"),
+    sencillo: costoPromedioPorProteina(combinaciones, null),
+  };
+  const costoVariablePromedio =
+    totalVendidosHistorico > 0
+      ? mezcla.reduce(
+          (sum, m) => sum + m.cantidad * (costoPorCategoria[m.key] ?? costoGeneral),
+          0
+        ) / totalVendidosHistorico
+      : costoGeneral;
+
+  // Gastos fijos mensuales: GastosFijos + promedio mensual de los retiros
+  // operativos (hasta los ultimos 6 meses con retiros registrados).
+  const gastosFijosSheet = fixedCosts.reduce(
+    (sum, c) => sum + (Number(c.montoMensual) || 0),
+    0
+  );
+  const retirosPorMes = new Map();
+  retiros.forEach((r) => {
+    if (!isRetiroOperativo(r.categoria)) return;
+    const f = parseFechaCompra(r.fecha);
+    if (!f) return;
+    const key = f.getFullYear() * 12 + f.getMonth();
+    retirosPorMes.set(key, (retirosPorMes.get(key) || 0) + (Number(r.monto) || 0));
+  });
+  const mesesRecientes = Array.from(retirosPorMes.keys())
+    .sort((a, b) => b - a)
+    .slice(0, 6);
+  const promedioRetirosMensual =
+    mesesRecientes.length > 0
+      ? mesesRecientes.reduce((sum, k) => sum + retirosPorMes.get(k), 0) /
+        mesesRecientes.length
+      : 0;
+  const gastosFijosMensuales = gastosFijosSheet + promedioRetirosMensual;
+
+  const margenContribucion = precioPromedio - costoVariablePromedio;
+  const puntoEquilibrioPlatillos =
+    margenContribucion > 0 ? gastosFijosMensuales / margenContribucion : null;
+
+  // Platillos realmente vendidos en el mes actual (VentasPorPlatillo o, en su
+  // defecto, conteo de Pedidos — ya resuelto por getPlatillosVendidosPorFecha).
+  const hoy = new Date();
+  const platillosVendidosMes = ventasPorFecha
+    .filter(
+      ({ fecha }) =>
+        fecha.getFullYear() === hoy.getFullYear() &&
+        fecha.getMonth() === hoy.getMonth()
+    )
+    .reduce((sum, v) => sum + v.cantidad, 0);
+
+  return {
+    precioPromedio,
+    costoVariablePromedio,
+    margenContribucion,
+    gastosFijosMensuales,
+    puntoEquilibrioPlatillos,
+    platillosVendidosMes,
+    mes: hoy.getMonth(),
+    anio: hoy.getFullYear(),
+    arribaDelEquilibrio:
+      puntoEquilibrioPlatillos === null
+        ? null
+        : platillosVendidosMes >= puntoEquilibrioPlatillos,
+  };
+}
 
 // Suma el historico completo de VentasPorPlatillo columna por columna y
 // calcula el % de cada una sobre el total de piezas vendidas (todas las
