@@ -42,11 +42,14 @@ export const menuConfig = {
       number: 2,
       title: "Proteina",
       badge: "Opcional — agrega las que quieras",
+      // `activo` es el valor por defecto si la pestaña "Disponibilidad" de
+      // Google Sheets no responde; la disponibilidad real se administra desde
+      // el panel de admin (Compras > Disponibilidad de proteinas).
       options: [
-        { id: "huevo", label: "Huevo", price: 10 },
-        { id: "pollo", label: "Pollo", price: 20 },
-        { id: "chicharron", label: "Chicharron prensado", price: 30 },
-        { id: "barbacoa", label: "Barbacoa", price: 40 },
+        { id: "huevo", label: "Huevo", price: 10, activo: true },
+        { id: "pollo", label: "Pollo", price: 20, activo: true },
+        { id: "chicharron", label: "Chicharron prensado", price: 30, activo: true },
+        { id: "barbacoa", label: "Barbacoa", price: 40, activo: true },
       ],
     },
 

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { logoutAction } from "./actions";
 import { siteConfig } from "@/config/site";
+import Accordion from "./Accordion";
 
 // Las fechas se guardan con Date.toLocaleString("es-MX"), ej:
 // "2/7/2026, 4:33:08 a. m." — dia/mes/año, 12 horas con a. m. / p. m.
@@ -36,6 +37,20 @@ function formatCurrency(value) {
 
 function isUrl(value) {
   return /^https?:\/\//i.test(value || "");
+}
+
+// Un pedido del sitio puede traer varias ordenes (carrito) en una sola fila:
+// Base, Proteinas y Toppings concatenan cada orden con " | ". Aqui se separan
+// para mostrar cada orden en su propia linea. Los pedidos viejos (sin "|")
+// devuelven una sola linea, igual que antes.
+function splitPedidoOrdenes(order) {
+  const bases = String(order.base || "").split("|").map((s) => s.trim());
+  const proteinas = String(order.proteinas || "").split("|").map((s) => s.trim());
+  const toppings = String(order.toppings || "").split("|").map((s) => s.trim());
+  const numOrdenes = Math.max(bases.length, proteinas.length, toppings.length);
+  return Array.from({ length: numOrdenes }, (_, i) =>
+    [bases[i], proteinas[i], toppings[i]].filter(Boolean).join(" + ")
+  ).filter(Boolean);
 }
 
 function isSameDay(a, b) {
@@ -158,6 +173,16 @@ function PaymentBadge({ metodo }) {
 export default function OrdersDashboard({ orders, error }) {
   const [period, setPeriod] = useState("today");
   const [search, setSearch] = useState("");
+  // La lista de pedidos es lo que mas se consulta en esta pestaña.
+  const [openSections, setOpenSections] = useState({
+    resumen: false,
+    grafica: false,
+    pedidos: true,
+  });
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   const withDates = useMemo(
     () => orders.map((o) => ({ ...o, parsedDate: parseFecha(o.fecha) })),
@@ -275,38 +300,62 @@ export default function OrdersDashboard({ orders, error }) {
         {!error && (
           <>
             {/* Tarjetas de resumen */}
-            <div className="grid sm:grid-cols-3 gap-4 mb-6">
-              <div className="bg-white border border-gray-200 rounded-2xl p-5">
-                <p className="text-sm text-gray-500 mb-1">Total en ventas</p>
-                <p className="text-3xl font-bold text-gray-900">
-                  {formatCurrency(totalVentas)}
-                </p>
+            <Accordion
+              title="Resumen de ventas"
+              summary={`${formatCurrency(totalVentas)} · ${numPedidos} pedido${
+                numPedidos !== 1 ? "s" : ""
+              }`}
+              isOpen={openSections.resumen}
+              onToggle={() => toggleSection("resumen")}
+            >
+              <div className="grid sm:grid-cols-3 gap-4">
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
+                  <p className="text-sm text-gray-500 mb-1">Total en ventas</p>
+                  <p className="text-3xl font-bold text-gray-900">
+                    {formatCurrency(totalVentas)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
+                  <p className="text-sm text-gray-500 mb-1">Número de pedidos</p>
+                  <p className="text-3xl font-bold text-gray-900">{numPedidos}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Promedio por pedido: {formatCurrency(promedio)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
+                  <p className="text-sm text-gray-500 mb-1">Método de pago más usado</p>
+                  <p className="text-xl font-bold text-gray-900 truncate">
+                    {metodoMasUsado || "—"}
+                  </p>
+                </div>
               </div>
-              <div className="bg-white border border-gray-200 rounded-2xl p-5">
-                <p className="text-sm text-gray-500 mb-1">Número de pedidos</p>
-                <p className="text-3xl font-bold text-gray-900">{numPedidos}</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Promedio por pedido: {formatCurrency(promedio)}
-                </p>
-              </div>
-              <div className="bg-white border border-gray-200 rounded-2xl p-5">
-                <p className="text-sm text-gray-500 mb-1">Método de pago más usado</p>
-                <p className="text-xl font-bold text-gray-900 truncate">
-                  {metodoMasUsado || "—"}
-                </p>
-              </div>
-            </div>
+            </Accordion>
 
             {/* Grafica de barras */}
-            {periodOrders.length > 0 && (
-              <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
-                <p className="text-sm font-medium text-gray-700 mb-4">
-                  Ventas por {chartUnit}
-                </p>
+            <Accordion
+              title={`Ventas por ${chartUnit}`}
+              summary={
+                periodOrders.length > 0 ? "gráfica del periodo" : "sin datos"
+              }
+              isOpen={openSections.grafica}
+              onToggle={() => toggleSection("grafica")}
+            >
+              {periodOrders.length > 0 ? (
                 <BarChart data={chartData} />
-              </div>
-            )}
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-6">
+                  No hay ventas en este periodo.
+                </p>
+              )}
+            </Accordion>
 
+            {/* Lista de pedidos */}
+            <Accordion
+              title="Lista de pedidos"
+              summary={`${numPedidos} pedido${numPedidos !== 1 ? "s" : ""}`}
+              isOpen={openSections.pedidos}
+              onToggle={() => toggleSection("pedidos")}
+            >
             {/* Buscador */}
             <div className="mb-4 flex items-center gap-3">
               <div className="relative">
@@ -335,7 +384,7 @@ export default function OrdersDashboard({ orders, error }) {
 
             {/* Estado vacio */}
             {periodOrders.length === 0 ? (
-              <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl p-12 text-center">
                 <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-4">
                   <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -349,7 +398,7 @@ export default function OrdersDashboard({ orders, error }) {
                 </p>
               </div>
             ) : (
-              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -374,11 +423,9 @@ export default function OrdersDashboard({ orders, error }) {
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody className="divide-y divide-gray-50 bg-white">
                       {filtered.map((order, i) => {
-                        const pedido = [order.base, order.proteinas, order.toppings]
-                          .filter(Boolean)
-                          .join(" + ");
+                        const ordenes = splitPedidoOrdenes(order);
                         return (
                           <tr key={i} className="hover:bg-gray-50 transition-colors">
                             <td className="px-5 py-4 text-gray-500 whitespace-nowrap text-xs">
@@ -391,9 +438,24 @@ export default function OrdersDashboard({ orders, error }) {
                               </p>
                             </td>
                             <td className="px-5 py-4 text-gray-600">
-                              <span className="block max-w-xs truncate" title={pedido}>
-                                {pedido || <span className="text-gray-300">—</span>}
-                              </span>
+                              {ordenes.length === 0 ? (
+                                <span className="text-gray-300">—</span>
+                              ) : (
+                                ordenes.map((pedido, j) => (
+                                  <span
+                                    key={j}
+                                    className="block max-w-xs truncate"
+                                    title={pedido}
+                                  >
+                                    {ordenes.length > 1 && (
+                                      <span className="text-gray-400 text-xs mr-1">
+                                        {j + 1}.
+                                      </span>
+                                    )}
+                                    {pedido}
+                                  </span>
+                                ))
+                              )}
                             </td>
                             <td className="px-5 py-4 font-medium text-gray-900 whitespace-nowrap">
                               {formatCurrency(order.total)}
@@ -423,12 +485,13 @@ export default function OrdersDashboard({ orders, error }) {
                 </div>
 
                 {filtered.length === 0 && search && (
-                  <p className="text-center text-gray-400 py-8 text-sm">
+                  <p className="text-center text-gray-400 py-8 text-sm bg-white">
                     Sin resultados para &ldquo;{search}&rdquo;.
                   </p>
                 )}
               </div>
             )}
+            </Accordion>
           </>
         )}
       </main>

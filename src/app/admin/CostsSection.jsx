@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { menuConfig } from "@/config/menu";
 import PlatillosSection from "./PlatillosSection";
+import Accordion from "./Accordion";
 
 // Relaciona el "Nombre" de la receta de proteina (pestaña Recetas) con el
 // id de proteina del menu (src/config/menu.js), para poder leer su precio
@@ -47,50 +48,6 @@ function fuenteBadgeClass(fuente) {
   if (fuente === "compra reciente") return "bg-green-100 text-green-700";
   if (fuente === "promedio ponderado") return "bg-sky-100 text-sky-700";
   return "bg-gray-100 text-gray-500";
-}
-
-function Accordion({ title, summary, isOpen, onToggle, children }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-4">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={isOpen}
-        className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span
-            className="text-xs shrink-0 transition-transform duration-200"
-            style={{
-              color: "#7f1d1d",
-              display: "inline-block",
-              transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
-            }}
-          >
-            ▶
-          </span>
-          <h3 className="text-sm font-semibold text-gray-700 truncate">{title}</h3>
-        </div>
-        {summary && (
-          <span
-            className={`text-xs text-gray-400 truncate shrink-0 transition-opacity duration-200 ${
-              isOpen ? "opacity-0" : "opacity-100"
-            }`}
-          >
-            {summary}
-          </span>
-        )}
-      </button>
-      <div
-        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
-        style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          <div className="px-5 pb-5">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 const emptySueldo = { sueldoSemanal: 0, promedioPlatillosSemana: 0, costoPorPlatillo: 0 };

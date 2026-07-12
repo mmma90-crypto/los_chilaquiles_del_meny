@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Accordion from "./Accordion";
 
 const UNIDADES = ["kg", "litro", "pieza", "paquete"];
 const CATEGORIAS_PRODUCTO = ["Insumo", "Proteina", "Empaque", "Operativo"];
 const NUEVO_PRODUCTO_VALUE = "__nuevo__";
 const FINANCIADO_POR_OPCIONES = ["Yo", "Papás Vanessa"];
+const METODOS_PAGO_COMPRA = ["Efectivo", "Tarjeta de credito"];
+const TARJETAS_COMPRA = ["BBVA", "HSBC", "Banregio", "Hey", "Santander", "Otro"];
 const PERIODOS_INSUMOS = [
   { id: "mes", label: "Este mes" },
   { id: "trimestre", label: "Últimos 3 meses" },
@@ -66,6 +69,8 @@ const initialForm = {
   pagado: false,
   financiadoPor: FINANCIADO_POR_OPCIONES[0],
   reembolsado: false,
+  metodoPagoCompra: METODOS_PAGO_COMPRA[0],
+  tarjeta: TARJETAS_COMPRA[0],
 };
 
 const initialNewProductForm = {
@@ -74,7 +79,7 @@ const initialNewProductForm = {
   categoria: CATEGORIAS_PRODUCTO[0],
 };
 
-const initialDeudasValue = { yo: 0, papasVanessa: 0 };
+const initialDeudasValue = { yo: 0, yoPorTarjeta: {}, papasVanessa: 0 };
 
 export default function PurchasesSection({ initialPurchases, initialDeudas, error }) {
   const [purchases, setPurchases] = useState(initialPurchases || []);
@@ -84,6 +89,19 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
   const [formError, setFormError] = useState(null);
   const [search, setSearch] = useState("");
   const [reembolsandoRow, setReembolsandoRow] = useState(null);
+  // Registrar compras es el uso principal de esta pestaña.
+  const [openSections, setOpenSections] = useState({
+    registrar: true,
+    disponibilidad: false,
+    resumen: false,
+    deudas: false,
+    insumos: false,
+    historial: false,
+  });
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   const [productos, setProductos] = useState([]);
   const [showNewProductForm, setShowNewProductForm] = useState(false);
@@ -98,6 +116,53 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
   const [ayudaSemanal, setAyudaSemanal] = useState([]);
   const [ayudaPendiente, setAyudaPendiente] = useState(0);
   const [marcandoAyudaRow, setMarcandoAyudaRow] = useState(null);
+
+  // Disponibilidad de proteinas (pestaña "Disponibilidad" de Google Sheets):
+  // controla que proteinas se ofrecen en el formulario de pedido del sitio.
+  const [disponibilidad, setDisponibilidad] = useState([]);
+  const [togglingProteina, setTogglingProteina] = useState(null);
+
+  useEffect(() => {
+    async function loadDisponibilidad() {
+      try {
+        const res = await fetch("/api/disponibilidad");
+        if (!res.ok) return;
+        const data = await res.json();
+        setDisponibilidad(data.proteinas || []);
+      } catch {
+        // Si falla, la seccion muestra el aviso de "sin datos".
+      }
+    }
+    loadDisponibilidad();
+  }, []);
+
+  async function handleToggleDisponibilidad(proteina) {
+    const nuevoActivo = !proteina.activo;
+    setTogglingProteina(proteina.id);
+    // Actualizacion optimista: el switch responde al instante y se revierte
+    // si Google Sheets no acepta el cambio.
+    setDisponibilidad((prev) =>
+      prev.map((p) => (p.id === proteina.id ? { ...p, activo: nuevoActivo } : p))
+    );
+    try {
+      const res = await fetch("/api/disponibilidad", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proteina: proteina.label, activo: nuevoActivo }),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (data.proteinas) setDisponibilidad(data.proteinas);
+    } catch {
+      setDisponibilidad((prev) =>
+        prev.map((p) =>
+          p.id === proteina.id ? { ...p, activo: proteina.activo } : p
+        )
+      );
+    } finally {
+      setTogglingProteina(null);
+    }
+  }
 
   async function refreshAyuda() {
     try {
@@ -330,10 +395,13 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
       </p>
 
       {/* Formulario de registro */}
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white border border-gray-200 rounded-2xl p-5 mb-6"
+      <Accordion
+        title="Registrar compra"
+        summary="nueva compra de insumos"
+        isOpen={openSections.registrar}
+        onToggle={() => toggleSection("registrar")}
       >
+      <form onSubmit={handleSubmit}>
         <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -423,6 +491,45 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
               ))}
             </select>
           </div>
+          {form.financiadoPor === "Yo" && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                ¿Cómo se pagó?
+              </label>
+              <select
+                value={form.metodoPagoCompra}
+                onChange={(e) =>
+                  setForm({ ...form, metodoPagoCompra: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+              >
+                {METODOS_PAGO_COMPRA.map((m) => (
+                  <option key={m} value={m}>
+                    {m === "Tarjeta de credito" ? "Tarjeta de crédito" : m}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {form.financiadoPor === "Yo" &&
+            form.metodoPagoCompra === "Tarjeta de credito" && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  ¿Con qué tarjeta?
+                </label>
+                <select
+                  value={form.tarjeta}
+                  onChange={(e) => setForm({ ...form, tarjeta: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+                >
+                  {TARJETAS_COMPRA.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           <div className="flex items-end gap-4">
             <label className="flex items-center gap-2 text-sm text-gray-700 pb-2.5">
               <input
@@ -534,6 +641,74 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
           {submitting ? "Registrando..." : "Registrar compra"}
         </button>
       </form>
+      </Accordion>
+
+      {/* Disponibilidad de proteinas del menu del sitio */}
+      <Accordion
+        title="Disponibilidad de proteínas"
+        summary={
+          disponibilidad.length > 0
+            ? disponibilidad.every((p) => p.activo)
+              ? "todas disponibles ✓"
+              : `agotadas: ${disponibilidad
+                  .filter((p) => !p.activo)
+                  .map((p) => p.label)
+                  .join(", ")}`
+            : "cargando..."
+        }
+        isOpen={openSections.disponibilidad}
+        onToggle={() => toggleSection("disponibilidad")}
+      >
+        <p className="text-sm text-gray-500 mb-4">
+          Apaga una proteína cuando se agote: en el formulario de pedido del
+          sitio aparecerá como &ldquo;Agotado&rdquo; y no se podrá elegir.
+        </p>
+        {disponibilidad.length === 0 ? (
+          <p className="text-sm text-gray-400">
+            No pudimos cargar la disponibilidad. Recarga la página para
+            reintentar.
+          </p>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-3">
+            {disponibilidad.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center justify-between gap-3 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {p.label}
+                  </p>
+                  <p
+                    className={`text-xs font-medium ${
+                      p.activo ? "text-green-700" : "text-red-700"
+                    }`}
+                  >
+                    {p.activo ? "Disponible" : "Agotado"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={p.activo}
+                  aria-label={`${p.activo ? "Desactivar" : "Activar"} ${p.label}`}
+                  disabled={togglingProteina === p.id}
+                  onClick={() => handleToggleDisponibilidad(p)}
+                  className="relative shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-60"
+                  style={{ backgroundColor: p.activo ? "#7f1d1d" : "#d1d5db" }}
+                >
+                  <span
+                    className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+                    style={{
+                      transform: p.activo ? "translateX(20px)" : "translateX(0)",
+                    }}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Accordion>
 
       {/* Mensaje de error de Google Sheets */}
       {error && (
@@ -559,38 +734,68 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
       {!error && (
         <>
           {/* Tarjetas de resumen */}
-          <div className="grid sm:grid-cols-3 gap-4 mb-4">
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <Accordion
+            title="Resumen del mes"
+            summary={`${formatCurrency(totalMes)} en ${numComprasMes} compra${
+              numComprasMes !== 1 ? "s" : ""
+            }`}
+            isOpen={openSections.resumen}
+            onToggle={() => toggleSection("resumen")}
+          >
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Total gastado este mes</p>
               <p className="text-3xl font-bold text-gray-900">
                 {formatCurrency(totalMes)}
               </p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Compras este mes</p>
               <p className="text-3xl font-bold text-gray-900">{numComprasMes}</p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Producto con mas gasto</p>
               <p className="text-xl font-bold text-gray-900 truncate">
                 {productoTopMes || "—"}
               </p>
             </div>
           </div>
+          </Accordion>
 
           {/* Tarjetas de deuda por reembolsar */}
-          <div className="grid sm:grid-cols-2 gap-4 mb-6">
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <Accordion
+            title="Deudas por reembolsar"
+            summary={
+              (deudas.yo || 0) + totalPapasVanessa > 0
+                ? formatCurrency((deudas.yo || 0) + totalPapasVanessa)
+                : "al día ✓"
+            }
+            isOpen={openSections.deudas}
+            onToggle={() => toggleSection("deudas")}
+          >
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Le debo a mí mismo</p>
               {deudas.yo > 0 ? (
-                <p className="text-3xl font-bold text-gray-900">
-                  {formatCurrency(deudas.yo)}
-                </p>
+                <>
+                  <p className="text-3xl font-bold text-gray-900">
+                    {formatCurrency(deudas.yo)}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {Object.entries(deudas.yoPorTarjeta || {})
+                      .filter(([, monto]) => monto > 0)
+                      .map(
+                        ([tarjeta, monto]) =>
+                          `${tarjeta}: ${formatCurrency(monto)}`
+                      )
+                      .join(" · ")}
+                  </p>
+                </>
               ) : (
                 <p className="text-3xl font-bold text-green-700">Al día ✓</p>
               )}
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Le debo a Papás Vanessa</p>
               {totalPapasVanessa > 0 ? (
                 <>
@@ -611,7 +816,7 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
 
           {/* Ayuda semanal pendiente */}
           {ayudaPendienteRows.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 mt-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">
                 Ayuda semanal pendiente
               </h3>
@@ -638,18 +843,22 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
               </div>
             </div>
           )}
+          </Accordion>
 
           {/* Insumos con mayor impacto */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
+          <Accordion
+            title="Insumos con mayor impacto"
+            summary={
+              topInsumos.length > 0 ? `top: ${topInsumos[0].producto}` : "sin datos"
+            }
+            isOpen={openSections.insumos}
+            onToggle={() => toggleSection("insumos")}
+          >
+          <div>
             <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700">
-                  Insumos con mayor impacto
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Que productos representan el mayor gasto del periodo.
-                </p>
-              </div>
+              <p className="text-xs text-gray-500">
+                Que productos representan el mayor gasto del periodo.
+              </p>
               <div className="inline-flex bg-gray-50 border border-gray-200 rounded-full p-1 gap-1">
                 {PERIODOS_INSUMOS.map((p) => (
                   <button
@@ -712,7 +921,15 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
               </div>
             )}
           </div>
+          </Accordion>
 
+          {/* Historial de compras */}
+          <Accordion
+            title="Historial de compras"
+            summary={`${purchases.length} compra${purchases.length !== 1 ? "s" : ""}`}
+            isOpen={openSections.historial}
+            onToggle={() => toggleSection("historial")}
+          >
           {/* Buscador */}
           <div className="mb-4 flex items-center gap-3">
             <div className="relative">
@@ -746,7 +963,7 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
 
           {/* Estado vacio */}
           {purchases.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-12 text-center">
               <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-4">
                 <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
@@ -758,7 +975,7 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
               </p>
             </div>
           ) : (
-            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -792,7 +1009,7 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
+                  <tbody className="divide-y divide-gray-50 bg-white">
                     {filtered.map((p, i) => (
                       <tr key={i} className="hover:bg-gray-50 transition-colors">
                         <td className="px-5 py-4 text-gray-500 whitespace-nowrap text-xs">
@@ -850,12 +1067,13 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
               </div>
 
               {filtered.length === 0 && search && (
-                <p className="text-center text-gray-400 py-8 text-sm">
+                <p className="text-center text-gray-400 py-8 text-sm bg-white">
                   Sin resultados para &ldquo;{search}&rdquo;.
                 </p>
               )}
             </div>
           )}
+          </Accordion>
         </>
       )}
     </div>

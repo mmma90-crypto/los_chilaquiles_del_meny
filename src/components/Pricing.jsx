@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { menuConfig } from "@/config/menu";
 import { siteConfig } from "@/config/site";
 
@@ -36,6 +36,53 @@ function isStep1Complete(base, verdeSpice, rojoSpice) {
   if (base === "rojos") return Boolean(rojoSpice);
   if (base === "combinados") return Boolean(verdeSpice && rojoSpice);
   return false;
+}
+
+/* Calcula las lineas y el total de UNA orden configurada. Es la misma logica
+   de precios que siempre uso el formulario, extraida a una funcion pura para
+   poder calcular tambien cada orden guardada en el carrito. */
+function buildOrderSummary({ base, verdeSpice, rojoSpice, proteins, toppings }) {
+  const { steps, summary } = menuConfig;
+  const lines = [];
+  let total = 0;
+
+  if (isStep1Complete(base, verdeSpice, rojoSpice)) {
+    const baseOption = findOption(steps.base.options, base);
+    total += steps.base.price;
+    let baseDetail = baseOption?.label ?? base;
+    if (base === "verdes") baseDetail += ` (${spiceLabel(verdeSpice)})`;
+    else if (base === "rojos") baseDetail += ` (${spiceLabel(rojoSpice)})`;
+    else if (base === "combinados")
+      baseDetail += ` — verde ${spiceLabel(verdeSpice).toLowerCase()}, roja ${spiceLabel(rojoSpice).toLowerCase()}`;
+    lines.push({ label: summary.baseLabel, value: baseDetail, price: steps.base.price, isAddon: false });
+  }
+
+  steps.protein.options.forEach((opt) => {
+    const qty = proteins[opt.id] || 0;
+    if (qty > 0) {
+      const subtotal = opt.price * qty;
+      total += subtotal;
+      lines.push({
+        label: summary.proteinLabel,
+        value: qty > 1 ? `${qty}× ${opt.label}` : opt.label,
+        price: subtotal,
+        isAddon: true,
+      });
+    }
+  });
+
+  if (toppings.length > 0) {
+    const labels = toppings.map((id) => findOption(steps.toppings.options, id)?.label).filter(Boolean);
+    lines.push({ label: summary.toppingsLabel, value: labels.join(", "), price: 0, isAddon: true });
+  }
+
+  return { lines, total };
+}
+
+/* Descripcion corta de una orden para las tarjetas del carrito y el resumen
+   lateral, ej. "Chilaquiles verdes (Picoso) · Pollo · Queso, Crema". */
+function orderShortDescription(orderSummary) {
+  return orderSummary.lines.map((l) => l.value).join(" · ");
 }
 
 /* ─── sub-components ──────────────────────────── */
@@ -122,7 +169,7 @@ function OptionButton({ selected, onClick, children }) {
   );
 }
 
-function QuantityRow({ label, price, qty, onIncrement, onDecrement, accentColor = "#5E8C3A" }) {
+function QuantityRow({ label, price, qty, onIncrement, onDecrement, agotado = false, accentColor = "#5E8C3A" }) {
   return (
     <div
       style={{
@@ -133,15 +180,43 @@ function QuantityRow({ label, price, qty, onIncrement, onDecrement, accentColor 
         gap: 12,
         padding: "13px 16px",
         borderRadius: 14,
-        border: `2px solid ${qty > 0 ? accentColor : "#EFE0C9"}`,
-        background: qty > 0 ? "#F1F6E9" : "#fff",
+        border: `2px solid ${!agotado && qty > 0 ? accentColor : "#EFE0C9"}`,
+        background: agotado ? "#FAF5EC" : qty > 0 ? "#F1F6E9" : "#fff",
+        opacity: agotado ? 0.75 : 1,
         transition: "all .15s ease",
       }}
     >
       <div>
-        <span style={{ fontFamily: "'Nunito Sans', sans-serif", fontWeight: 700, fontSize: 15.5, color: "#2E1B10" }}>
+        <span
+          style={{
+            fontFamily: "'Nunito Sans', sans-serif",
+            fontWeight: 700,
+            fontSize: 15.5,
+            color: agotado ? "#A8917A" : "#2E1B10",
+            textDecoration: agotado ? "line-through" : "none",
+          }}
+        >
           {label}
         </span>
+        {agotado && (
+          <span
+            style={{
+              marginLeft: 8,
+              fontFamily: "'Baloo 2', sans-serif",
+              fontWeight: 800,
+              fontSize: 11.5,
+              color: "#D6452B",
+              background: "#FDE3DC",
+              padding: "2px 9px",
+              borderRadius: 999,
+              verticalAlign: "middle",
+              textTransform: "uppercase",
+              letterSpacing: ".04em",
+            }}
+          >
+            Agotado
+          </span>
+        )}
         <span style={{ display: "block", fontFamily: "'Baloo 2', sans-serif", fontWeight: 700, fontSize: 13, color: "#9b8369" }}>
           +{formatPrice(price)} c/u
         </span>
@@ -185,18 +260,19 @@ function QuantityRow({ label, price, qty, onIncrement, onDecrement, accentColor 
         <button
           type="button"
           onClick={onIncrement}
+          disabled={agotado}
           aria-label={`Agregar ${label}`}
           style={{
             width: 32,
             height: 32,
             borderRadius: "50%",
-            border: "2px solid #D6452B",
-            background: "#D6452B",
+            border: `2px solid ${agotado ? "#D8C7AE" : "#D6452B"}`,
+            background: agotado ? "#D8C7AE" : "#D6452B",
             color: "#fff",
             fontWeight: 800,
             fontSize: 18,
             lineHeight: 1,
-            cursor: "pointer",
+            cursor: agotado ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -294,8 +370,42 @@ export default function Pricing() {
   const [proteins, setProteins] = useState({});
   const [toppings, setToppings] = useState([]);
 
+  /* disponibilidad de proteinas: mapa id -> activo. Mientras no cargue (o si
+     falla la peticion), se usa el `activo` de menu.js como respaldo. */
+  const [disponibilidad, setDisponibilidad] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/disponibilidad")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.proteinas) return;
+        const map = {};
+        data.proteinas.forEach((p) => {
+          map[p.id] = p.activo !== false;
+        });
+        setDisponibilidad(map);
+      })
+      .catch(() => {
+        // Sin conexion a la API: el menu usa los valores de menu.js.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function isProteinAgotada(opt) {
+    if (disponibilidad) return disponibilidad[opt.id] === false;
+    return opt.activo === false;
+  }
+
+  /* carrito: ordenes ya armadas ({ base, verdeSpice, rojoSpice, proteins,
+     toppings }); editingIndex indica cual se esta editando en el formulario */
+  const [cart, setCart] = useState([]);
+  const [editingIndex, setEditingIndex] = useState(null);
+
   /* flujo */
-  const [stage, setStage] = useState("menu"); // menu | customer | payment
+  const [stage, setStage] = useState("menu"); // menu | cart | customer | payment
 
   /* datos del cliente */
   const [customerForm, setCustomerForm] = useState({
@@ -323,42 +433,22 @@ export default function Pricing() {
   /* ── computed ── */
   const step1Complete = isStep1Complete(base, verdeSpice, rojoSpice);
 
-  const orderSummary = useMemo(() => {
-    const lines = [];
-    let total = 0;
+  const orderSummary = useMemo(
+    () => buildOrderSummary({ base, verdeSpice, rojoSpice, proteins, toppings }),
+    [base, verdeSpice, rojoSpice, proteins, toppings]
+  );
 
-    if (step1Complete) {
-      const baseOption = findOption(steps.base.options, base);
-      total += steps.base.price;
-      let baseDetail = baseOption?.label ?? base;
-      if (base === "verdes") baseDetail += ` (${spiceLabel(verdeSpice)})`;
-      else if (base === "rojos") baseDetail += ` (${spiceLabel(rojoSpice)})`;
-      else if (base === "combinados")
-        baseDetail += ` — verde ${spiceLabel(verdeSpice).toLowerCase()}, roja ${spiceLabel(rojoSpice).toLowerCase()}`;
-      lines.push({ label: summary.baseLabel, value: baseDetail, price: steps.base.price, isAddon: false });
-    }
-
-    steps.protein.options.forEach((opt) => {
-      const qty = proteins[opt.id] || 0;
-      if (qty > 0) {
-        const subtotal = opt.price * qty;
-        total += subtotal;
-        lines.push({
-          label: summary.proteinLabel,
-          value: qty > 1 ? `${qty}× ${opt.label}` : opt.label,
-          price: subtotal,
-          isAddon: true,
-        });
-      }
-    });
-
-    if (toppings.length > 0) {
-      const labels = toppings.map((id) => findOption(steps.toppings.options, id)?.label).filter(Boolean);
-      lines.push({ label: summary.toppingsLabel, value: labels.join(", "), price: 0, isAddon: true });
-    }
-
-    return { lines, total };
-  }, [base, verdeSpice, rojoSpice, proteins, toppings, step1Complete, steps, summary]);
+  /* resumen de cada orden del carrito y total acumulado (carrito + la orden
+     que se este armando en el formulario, si hay una en curso). Al editar,
+     la version guardada de esa orden se descuenta para no contarla doble. */
+  const cartSummaries = useMemo(() => cart.map(buildOrderSummary), [cart]);
+  const cartTotal = cartSummaries.reduce((sum, s) => sum + s.total, 0);
+  const editingTotal =
+    editingIndex !== null && cartSummaries[editingIndex]
+      ? cartSummaries[editingIndex].total
+      : 0;
+  const totalAcumulado =
+    stage === "menu" ? cartTotal - editingTotal + orderSummary.total : cartTotal;
 
   /* ── handlers ── */
   function handleBaseChange(baseId) {
@@ -383,12 +473,80 @@ export default function Pricing() {
     });
   }
 
-  function handleContinue() {
-    if (!step1Complete) return;
-    setStage("customer");
+  function scrollToFormTop() {
     setTimeout(() => {
       document.getElementById("order-form-top")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
+  }
+
+  function resetOrderForm() {
+    setBase(null);
+    setVerdeSpice(null);
+    setRojoSpice(null);
+    setProteins({});
+    setToppings([]);
+  }
+
+  /* Agrega la orden configurada al carrito (o guarda la edicion) y muestra
+     el resumen "Tu pedido". */
+  function handleAddToCart() {
+    if (!step1Complete) return;
+    const nuevaOrden = { base, verdeSpice, rojoSpice, proteins, toppings };
+    setCart((prev) =>
+      editingIndex === null
+        ? [...prev, nuevaOrden]
+        : prev.map((o, i) => (i === editingIndex ? nuevaOrden : o))
+    );
+    setEditingIndex(null);
+    resetOrderForm();
+    setStage("cart");
+    scrollToFormTop();
+  }
+
+  /* Vuelve a cargar una orden del carrito en el formulario para editarla. */
+  function handleEditOrder(index) {
+    const o = cart[index];
+    if (!o) return;
+    setBase(o.base);
+    setVerdeSpice(o.verdeSpice);
+    setRojoSpice(o.rojoSpice);
+    setProteins(o.proteins);
+    setToppings(o.toppings);
+    setEditingIndex(index);
+    setStage("menu");
+    scrollToFormTop();
+  }
+
+  function handleDeleteOrder(index) {
+    const next = cart.filter((_, i) => i !== index);
+    setCart(next);
+    if (next.length === 0) {
+      resetOrderForm();
+      setEditingIndex(null);
+      setStage("menu");
+    }
+  }
+
+  /* "+ Agregar otra orden": formulario limpio, conservando el carrito. */
+  function handleAddAnother() {
+    resetOrderForm();
+    setEditingIndex(null);
+    setStage("menu");
+    scrollToFormTop();
+  }
+
+  /* Descarta lo que haya en el formulario y regresa al resumen del carrito. */
+  function handleBackToCart() {
+    resetOrderForm();
+    setEditingIndex(null);
+    setStage("cart");
+    scrollToFormTop();
+  }
+
+  function handleContinueToCustomer() {
+    if (cart.length === 0) return;
+    setStage("customer");
+    scrollToFormTop();
   }
 
   function handleCustomerChange(e) {
@@ -427,7 +585,7 @@ export default function Pricing() {
   }
 
   function handleContinueToPayment() {
-    if (!acceptedTerms) return;
+    if (!acceptedTerms || cart.length === 0) return;
     const errs = validateCustomer();
     if (Object.keys(errs).length > 0) { setCustomerErrors(errs); return; }
 
@@ -440,27 +598,40 @@ export default function Pricing() {
       locationUrl,
     };
 
-    setSavedOrder({ ...orderSummary, customer: customerData });
+    // Desglose por orden del carrito. Una orden sin proteina se guarda como
+    // "Sencillo" para que las estadisticas de platillos la cuenten.
+    const ordenes = cart.map((config) => {
+      const s = buildOrderSummary(config);
+      const baseLine = s.lines.find((l) => l.label === summary.baseLabel);
+      const proteinLines = s.lines.filter((l) => l.label === summary.proteinLabel);
+      const toppingsLine = s.lines.find((l) => l.label === summary.toppingsLabel);
+      return {
+        lines: s.lines,
+        total: s.total,
+        base: baseLine?.value || "",
+        proteinas: proteinLines.map((l) => l.value).join(", ") || "Sencillo",
+        toppings: toppingsLine?.value || "",
+      };
+    });
+    const totalCarrito = ordenes.reduce((sum, o) => sum + o.total, 0);
+
+    setSavedOrder({ ordenes, total: totalCarrito, customer: customerData });
     setPayMethod(null);
     setOrderRowNumber(null);
     setStage("payment");
-    setTimeout(() => {
-      document.getElementById("order-form-top")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
+    scrollToFormTop();
 
-    // Registro en Google Sheets para estadisticas; no bloquea el flujo si falla
-    const baseLine = orderSummary.lines.find((l) => l.label === summary.baseLabel);
-    const proteinLines = orderSummary.lines.filter((l) => l.label === summary.proteinLabel);
-    const toppingsLine = orderSummary.lines.find((l) => l.label === summary.toppingsLabel);
-
+    // Registro en Google Sheets para estadisticas; no bloquea el flujo si
+    // falla. Todo el carrito viaja en UNA fila: cada columna concatena las
+    // ordenes con " | " y el Total es la suma de todas.
     fetch("/api/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        base: baseLine?.value || "",
-        proteinas: proteinLines.map((l) => l.value).join(", "),
-        toppings: toppingsLine?.value || "",
-        total: orderSummary.total,
+        base: ordenes.map((o) => o.base).join(" | "),
+        proteinas: ordenes.map((o) => o.proteinas).join(" | "),
+        toppings: ordenes.map((o) => o.toppings).join(" | "),
+        total: totalCarrito,
         nombre: customerData.name,
         telefono: customerData.phone,
         direccion: customerData.address,
@@ -490,13 +661,20 @@ export default function Pricing() {
     if (!savedOrder) return "#";
     const c = savedOrder.customer;
     const payLabels = PAY_METHOD_LABELS;
+    const varias = savedOrder.ordenes.length > 1;
+
+    // Cada orden del carrito con su propio bloque de detalle.
+    const bloquesOrdenes = savedOrder.ordenes.flatMap((orden, i) => [
+      varias ? `*Orden ${i + 1}* ($${orden.total}):` : "*Mi pedido:*",
+      ...orden.lines.map((l) => `• ${l.label}: ${l.value}`),
+      "",
+    ]);
+
     const msgLines = [
       "¡Hola! Quiero hacer un pedido 🌮🌶️",
       "",
-      "*Mi pedido:*",
-      ...savedOrder.lines.map((l) => `• ${l.label}: ${l.value}`),
-      "",
-      `*Total: $${savedOrder.total}*`,
+      ...bloquesOrdenes,
+      `*Total${varias ? " general" : ""}: $${savedOrder.total}*`,
       "",
       "*Datos de entrega:*",
       `Nombre: ${c.name}`,
@@ -689,16 +867,22 @@ export default function Pricing() {
                 {/* STEP 2 — Proteína */}
                 <StepCard number={steps.protein.number} title={steps.protein.title} badge={steps.protein.badge} accentColor="#5E8C3A">
                   <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                    {steps.protein.options.map((opt) => (
-                      <QuantityRow
-                        key={opt.id}
-                        label={opt.label}
-                        price={opt.price}
-                        qty={proteins[opt.id] || 0}
-                        onIncrement={() => incrementProtein(opt.id)}
-                        onDecrement={() => decrementProtein(opt.id)}
-                      />
-                    ))}
+                    {steps.protein.options.map((opt) => {
+                      const agotada = isProteinAgotada(opt);
+                      return (
+                        <QuantityRow
+                          key={opt.id}
+                          label={opt.label}
+                          price={opt.price}
+                          qty={proteins[opt.id] || 0}
+                          agotado={agotada}
+                          onIncrement={() => {
+                            if (!agotada) incrementProtein(opt.id);
+                          }}
+                          onDecrement={() => decrementProtein(opt.id)}
+                        />
+                      );
+                    })}
                   </div>
                 </StepCard>
 
@@ -716,13 +900,210 @@ export default function Pricing() {
                   </div>
                 </StepCard>
 
-                {/* Continuar */}
+                {/* Agregar la orden al carrito (o guardar la edicion) */}
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {(editingIndex !== null || cart.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={handleBackToCart}
+                      style={{
+                        flex: "0 0 auto",
+                        border: "2px solid #EFE0C9",
+                        background: "#fff",
+                        color: "#6B5746",
+                        fontFamily: "'Baloo 2', sans-serif",
+                        fontWeight: 800,
+                        fontSize: 16,
+                        padding: "14px 22px",
+                        borderRadius: 999,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {editingIndex !== null
+                        ? "Cancelar"
+                        : `← Ver mi pedido (${cart.length})`}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleAddToCart}
+                    disabled={!step1Complete}
+                    style={{
+                      flex: 1,
+                      minWidth: 180,
+                      background: step1Complete ? "#D6452B" : "#C9A98C",
+                      color: "#fff",
+                      border: "none",
+                      fontFamily: "'Baloo 2', sans-serif",
+                      fontWeight: 800,
+                      fontSize: 18,
+                      padding: "16px",
+                      borderRadius: 999,
+                      cursor: step1Complete ? "pointer" : "not-allowed",
+                      opacity: step1Complete ? 1 : 0.65,
+                      boxShadow: step1Complete ? "0 12px 26px rgba(214,69,43,.28)" : "none",
+                      transition: "all .2s",
+                    }}
+                  >
+                    {editingIndex !== null
+                      ? "Guardar cambios"
+                      : cart.length > 0
+                      ? "+ Agregar esta orden"
+                      : "Agregar a mi pedido"}
+                  </button>
+                </div>
+                {!step1Complete && base && (
+                  <p style={{ textAlign: "center", fontSize: 13, color: "#A8917A", margin: 0 }}>
+                    Elige si la quieres picosa o no picosa para continuar.
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* ====== STAGE: cart (Tu pedido) ====== */}
+            {stage === "cart" && (
+              <div
+                style={{
+                  background: "#fff",
+                  borderRadius: 26,
+                  padding: 30,
+                  border: "1px solid #F0E2CC",
+                  boxShadow: "0 22px 50px rgba(120,70,20,.1)",
+                }}
+              >
+                <h3 style={{ fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, fontSize: 23, margin: "0 0 4px", color: "#2E1B10" }}>
+                  Tu pedido
+                </h3>
+                <p style={{ fontSize: 14.5, color: "#6B5746", margin: "0 0 20px" }}>
+                  Revisa tus órdenes. Puedes editarlas, quitarlas o agregar más
+                  antes de continuar con la entrega.
+                </p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {cartSummaries.map((s, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        border: "2px solid #EFE0C9",
+                        borderRadius: 16,
+                        padding: "14px 16px",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, fontSize: 15.5, color: "#2E1B10" }}>
+                          Orden {i + 1}
+                          <span style={{ color: "#D6452B", marginLeft: 8 }}>
+                            {formatPrice(s.total)}
+                          </span>
+                        </div>
+                        {s.lines.map((l, j) => (
+                          <p key={j} style={{ margin: "4px 0 0", fontSize: 13.5, color: "#6B5746" }}>
+                            <span style={{ color: "#A8917A" }}>{l.label}:</span>{" "}
+                            {l.value}
+                          </p>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleEditOrder(i)}
+                          aria-label={`Editar orden ${i + 1}`}
+                          title="Editar"
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: "50%",
+                            border: "2px solid #EFE0C9",
+                            background: "#fff",
+                            color: "#6B5746",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteOrder(i)}
+                          aria-label={`Eliminar orden ${i + 1}`}
+                          title="Eliminar"
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: "50%",
+                            border: "2px solid #F5D5CC",
+                            background: "#fff",
+                            color: "#D6452B",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
                 <button
                   type="button"
-                  onClick={handleContinue}
-                  disabled={!step1Complete}
+                  onClick={handleAddAnother}
                   style={{
-                    background: step1Complete ? "#D6452B" : "#C9A98C",
+                    width: "100%",
+                    marginTop: 14,
+                    border: "2px dashed #D6452B",
+                    background: "#FFF8F3",
+                    color: "#D6452B",
+                    fontFamily: "'Baloo 2', sans-serif",
+                    fontWeight: 800,
+                    fontSize: 16,
+                    padding: "13px",
+                    borderRadius: 999,
+                    cursor: "pointer",
+                  }}
+                >
+                  + Agregar otra orden
+                </button>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    borderTop: "2px dashed #EAD9BF",
+                    marginTop: 18,
+                    paddingTop: 14,
+                  }}
+                >
+                  <span style={{ fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, fontSize: 17, color: "#2E1B10" }}>
+                    Total ({cart.length} {cart.length === 1 ? "orden" : "órdenes"})
+                  </span>
+                  <span style={{ fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, fontSize: 28, color: "#D6452B" }}>
+                    {formatPrice(cartTotal)}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleContinueToCustomer}
+                  style={{
+                    width: "100%",
+                    marginTop: 16,
+                    background: "#D6452B",
                     color: "#fff",
                     border: "none",
                     fontFamily: "'Baloo 2', sans-serif",
@@ -730,20 +1111,13 @@ export default function Pricing() {
                     fontSize: 18,
                     padding: "16px",
                     borderRadius: 999,
-                    cursor: step1Complete ? "pointer" : "not-allowed",
-                    opacity: step1Complete ? 1 : 0.65,
-                    boxShadow: step1Complete ? "0 12px 26px rgba(214,69,43,.28)" : "none",
-                    transition: "all .2s",
+                    cursor: "pointer",
+                    boxShadow: "0 12px 26px rgba(214,69,43,.28)",
                   }}
                 >
-                  {summary.continueButton}
+                  Continuar con la entrega
                 </button>
-                {!step1Complete && base && (
-                  <p style={{ textAlign: "center", fontSize: 13, color: "#A8917A", margin: 0 }}>
-                    Elige si la quieres picosa o no picosa para continuar.
-                  </p>
-                )}
-              </>
+              </div>
             )}
 
             {/* ====== STAGE: customer ====== */}
@@ -914,7 +1288,7 @@ export default function Pricing() {
                   <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 4 }}>
                     <button
                       type="button"
-                      onClick={() => setStage("menu")}
+                      onClick={() => setStage("cart")}
                       style={{
                         flex: "0 0 auto",
                         textAlign: "center",
@@ -1195,27 +1569,61 @@ export default function Pricing() {
               {summary.heading}
             </h3>
             <p style={{ fontSize: 13.5, color: "#C7AE92", margin: "0 0 16px" }}>
-              {orderSummary.lines.length === 0
+              {cart.length === 0 && orderSummary.lines.length === 0
                 ? summary.emptyMessage
+                : cart.length > 0
+                ? `${cart.length} ${cart.length === 1 ? "orden" : "órdenes"} en tu pedido.`
                 : "Personaliza tu orden, el total se actualiza solo."}
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 11, borderTop: "1px solid #4A3526", paddingTop: 16 }}>
-              {orderSummary.lines.map((line) => (
-                <div key={`${line.label}-${line.value}`} style={{ fontSize: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                    <span style={{ color: "#C7AE92" }}>{line.label}</span>
-                    <span style={{ fontWeight: 800, color: "#FFF6EA", textAlign: "right", flexShrink: 0 }}>
-                      {line.price === 0
-                        ? formatPrice(0)
-                        : line.isAddon
-                        ? `+${formatPrice(line.price)}`
-                        : formatPrice(line.price)}
-                    </span>
+              {/* Ordenes ya guardadas en el carrito (la que se esta editando
+                  se muestra abajo con sus valores en curso, no aqui) */}
+              {cartSummaries.map((s, i) =>
+                stage === "menu" && editingIndex === i ? null : (
+                  <div key={`orden-${i}`} style={{ fontSize: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <span style={{ fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, color: "#FFE7B3" }}>
+                        Orden {i + 1}
+                      </span>
+                      <span style={{ fontWeight: 800, color: "#FFF6EA", textAlign: "right", flexShrink: 0 }}>
+                        {formatPrice(s.total)}
+                      </span>
+                    </div>
+                    <p style={{ margin: "3px 0 0", color: "#A8927C", fontSize: 13 }}>
+                      {orderShortDescription(s)}
+                    </p>
                   </div>
-                  <p style={{ margin: "3px 0 0", color: "#A8927C", fontSize: 13 }}>{line.value}</p>
-                </div>
-              ))}
+                )
+              )}
+
+              {/* Orden en preparacion (formulario actual) */}
+              {stage === "menu" && orderSummary.lines.length > 0 && (
+                <>
+                  {cart.length > 0 && (
+                    <p style={{ margin: "4px 0 0", color: "#C7AE92", fontSize: 12, fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".06em" }}>
+                      {editingIndex !== null
+                        ? `Editando orden ${editingIndex + 1}:`
+                        : "En preparación:"}
+                    </p>
+                  )}
+                  {orderSummary.lines.map((line) => (
+                    <div key={`${line.label}-${line.value}`} style={{ fontSize: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <span style={{ color: "#C7AE92" }}>{line.label}</span>
+                        <span style={{ fontWeight: 800, color: "#FFF6EA", textAlign: "right", flexShrink: 0 }}>
+                          {line.price === 0
+                            ? formatPrice(0)
+                            : line.isAddon
+                            ? `+${formatPrice(line.price)}`
+                            : formatPrice(line.price)}
+                        </span>
+                      </div>
+                      <p style={{ margin: "3px 0 0", color: "#A8927C", fontSize: 13 }}>{line.value}</p>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderTop: "1px solid #4A3526", marginTop: 16, paddingTop: 16 }}>
@@ -1223,7 +1631,7 @@ export default function Pricing() {
                 {summary.totalLabel}
               </span>
               <span style={{ fontFamily: "'Baloo 2', sans-serif", fontWeight: 800, fontSize: 34, color: "#fff" }}>
-                {formatPrice(orderSummary.total)}
+                {formatPrice(totalAcumulado)}
               </span>
             </div>
           </aside>

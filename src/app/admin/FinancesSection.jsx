@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { siteConfig } from "@/config/site";
+import Accordion from "./Accordion";
 
 const MESES_NOMBRES = [
   "Enero",
@@ -19,6 +20,18 @@ const MESES_NOMBRES = [
 ];
 
 const METODOS_PAGO = ["Efectivo", "Transferencia", "Otro"];
+
+// Composicion del platillo, con las mismas opciones que usa el pedido del
+// sitio y la pestaña VentasPorPlatillo. Es opcional: una venta sin composicion
+// (ej. un monto global "Venta domingo") se guarda igual que antes.
+const BASES_PLATILLO = [
+  "Verde picosa",
+  "Verde no picosa",
+  "Roja picosa",
+  "Roja no picosa",
+];
+const PROTEINAS_PLATILLO = ["Sencillo", "Pollo", "Barbacoa", "Chicharron", "Huevo"];
+const EXTRAS_PLATILLO = ["Extra huevo", "Extra salsa", "Extra prensado", "Extra pollo"];
 
 function todayInputValue() {
   const now = new Date();
@@ -43,6 +56,9 @@ const initialForm = {
   concepto: "Venta domingo",
   monto: "",
   metodoPago: "Efectivo",
+  base: "",
+  proteina: "",
+  extras: [],
 };
 
 export default function FinancesSection({ initialFinances, error }) {
@@ -53,6 +69,16 @@ export default function FinancesSection({ initialFinances, error }) {
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
+  // El estado de resultados es lo que mas se consulta en esta pestaña.
+  const [openSections, setOpenSections] = useState({
+    estado: true,
+    anual: false,
+    mensual: false,
+  });
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   const currentYear = new Date().getFullYear();
   const currentMonthNumber = new Date().getMonth() + 1;
@@ -125,7 +151,9 @@ export default function FinancesSection({ initialFinances, error }) {
       const res = await fetch("/api/finances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        // Los extras viajan como texto ("Extra huevo, Extra pollo"), igual
+        // que se guardan en la columna Extras de VentasManuales.
+        body: JSON.stringify({ ...form, extras: form.extras.join(", ") }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -143,19 +171,37 @@ export default function FinancesSection({ initialFinances, error }) {
 
   return (
     <div className="max-w-7xl mx-auto px-6 pt-8 pb-12">
-      {!error && <EstadoResultadosSection meses={meses} />}
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Finanzas</h2>
+        <p className="text-sm text-gray-500">
+          Ventas, costos y utilidad neta del negocio.
+        </p>
+      </div>
 
       {!error && (
-        <div className="mb-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-1">
-            Resumen anual {currentYear}
-          </h2>
+        <Accordion
+          title="Estado de resultados"
+          summary="utilidad y punto de equilibrio"
+          isOpen={openSections.estado}
+          onToggle={() => toggleSection("estado")}
+        >
+          <EstadoResultadosSection meses={meses} />
+        </Accordion>
+      )}
+
+      {!error && (
+        <Accordion
+          title={`Resumen anual ${currentYear}`}
+          summary={`utilidad ${formatCurrency(resumenAnual.utilidadNeta)}`}
+          isOpen={openSections.anual}
+          onToggle={() => toggleSection("anual")}
+        >
           <p className="text-sm text-gray-500 mb-4">
             Todos los meses del año, sin importar el mes elegido abajo.
           </p>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Ventas del año</p>
               <p className="text-2xl font-bold text-gray-900">
                 {formatCurrency(resumenAnual.ventasTotales)}
@@ -166,19 +212,19 @@ export default function FinancesSection({ initialFinances, error }) {
                 {formatCurrency(resumenAnual.tarjetaPaypal)}
               </p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Gastado en insumos del año</p>
               <p className="text-2xl font-bold text-gray-900">
                 {formatCurrency(resumenAnual.gastoInsumos)}
               </p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Gastos fijos acumulados</p>
               <p className="text-2xl font-bold text-gray-900">
                 {formatCurrency(resumenAnual.gastosFijosAcumulados)}
               </p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Utilidad neta del año</p>
               <p
                 className={`text-2xl font-bold ${
@@ -194,28 +240,8 @@ export default function FinancesSection({ initialFinances, error }) {
           </div>
 
           <AnnualBarChart meses={meses} />
-        </div>
+        </Accordion>
       )}
-
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 mb-1">Finanzas</h2>
-          <p className="text-sm text-gray-500">
-            Utilidad neta mensual del negocio.
-          </p>
-        </div>
-        <select
-          value={selectedMonth}
-          onChange={(e) => setSelectedMonth(Number(e.target.value))}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
-        >
-          {MESES_NOMBRES.map((nombre, i) => (
-            <option key={nombre} value={i + 1}>
-              {nombre}
-            </option>
-          ))}
-        </select>
-      </div>
 
       {error && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
@@ -238,10 +264,34 @@ export default function FinancesSection({ initialFinances, error }) {
       )}
 
       {!error && (
-        <>
+        <Accordion
+          title="Finanzas del mes"
+          summary={`${MESES_NOMBRES[selectedMonth - 1]}: utilidad ${formatCurrency(
+            mesActual?.utilidadNeta
+          )}`}
+          isOpen={openSections.mensual}
+          onToggle={() => toggleSection("mensual")}
+        >
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <p className="text-sm text-gray-500">
+              Utilidad neta mensual del negocio.
+            </p>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+            >
+              {MESES_NOMBRES.map((nombre, i) => (
+                <option key={nombre} value={i + 1}>
+                  {nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Tarjetas del mes seleccionado */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Ventas totales</p>
               <p className="text-2xl font-bold text-gray-900">
                 {formatCurrency(mesActual?.ventasTotales)}
@@ -251,19 +301,19 @@ export default function FinancesSection({ initialFinances, error }) {
                 {formatCurrency(mesActual?.ventasManuales)}
               </p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Gasto en insumos</p>
               <p className="text-2xl font-bold text-gray-900">
                 {formatCurrency(mesActual?.gastoInsumos)}
               </p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Gastos fijos</p>
               <p className="text-2xl font-bold text-gray-900">
                 {formatCurrency(mesActual?.gastosFijos)}
               </p>
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
               <p className="text-sm text-gray-500 mb-1">Utilidad neta</p>
               <p
                 className={`text-2xl font-bold ${
@@ -283,12 +333,12 @@ export default function FinancesSection({ initialFinances, error }) {
           {/* Formulario de venta manual */}
           <form
             onSubmit={handleSubmit}
-            className="bg-white border border-gray-200 rounded-2xl p-5 mb-6"
+            className="bg-gray-50 border border-gray-100 rounded-2xl p-5 mb-6"
           >
             <p className="text-sm font-semibold text-gray-900 mb-3">
               Registrar venta manual
             </p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Fecha
@@ -341,22 +391,102 @@ export default function FinancesSection({ initialFinances, error }) {
                   ))}
                 </select>
               </div>
-              <div className="flex items-end">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full px-5 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-60 transition-opacity"
-                  style={{ backgroundColor: "#7f1d1d" }}
-                >
-                  {submitting ? "Registrando..." : "Registrar venta"}
-                </button>
+            </div>
+
+            {/* Composicion del platillo (opcional, alimenta "Platillos mas vendidos") */}
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Composición del platillo{" "}
+                <span className="font-normal normal-case text-gray-400">
+                  (opcional — se suma a las estadísticas de platillos)
+                </span>
+              </p>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Base
+                  </label>
+                  <select
+                    value={form.base}
+                    onChange={(e) => setForm({ ...form, base: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+                  >
+                    <option value="">Sin especificar</option>
+                    {BASES_PLATILLO.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Proteína
+                  </label>
+                  <select
+                    value={form.proteina}
+                    onChange={(e) => setForm({ ...form, proteina: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
+                  >
+                    <option value="">Sin especificar</option>
+                    {PROTEINAS_PLATILLO.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Extras
+                  </label>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {EXTRAS_PLATILLO.map((extra) => {
+                      const selected = form.extras.includes(extra);
+                      return (
+                        <button
+                          key={extra}
+                          type="button"
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              extras: selected
+                                ? form.extras.filter((x) => x !== extra)
+                                : [...form.extras, extra],
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                            selected
+                              ? "text-white border-transparent"
+                              : "text-gray-600 border-gray-300 bg-white hover:bg-gray-50"
+                          }`}
+                          style={selected ? { backgroundColor: "#7f1d1d" } : undefined}
+                        >
+                          {selected ? "✓ " : ""}
+                          {extra}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-60 transition-opacity"
+                style={{ backgroundColor: "#7f1d1d" }}
+              >
+                {submitting ? "Registrando..." : "Registrar venta"}
+              </button>
             </div>
             {formError && <p className="text-sm text-red-700 mt-3">{formError}</p>}
           </form>
 
           {/* Tabla comparativa de todos los meses */}
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -381,7 +511,7 @@ export default function FinancesSection({ initialFinances, error }) {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-gray-50 bg-white">
                   {meses.map((m) => {
                     const expanded = expandedMonth === m.mes;
                     return (
@@ -446,7 +576,7 @@ export default function FinancesSection({ initialFinances, error }) {
               </table>
             </div>
           </div>
-        </>
+        </Accordion>
       )}
     </div>
   );
@@ -515,16 +645,11 @@ function EstadoResultadosSection({ meses }) {
       : null;
 
   return (
-    <div className="mb-8">
+    <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 mb-1">
-            Estado de resultados
-          </h2>
-          <p className="text-sm text-gray-500">
-            Ventas, costos y utilidades del mes elegido.
-          </p>
-        </div>
+        <p className="text-sm text-gray-500">
+          Ventas, costos y utilidades del mes elegido.
+        </p>
         <div className="flex items-center gap-2 flex-wrap">
           <select
             value={mes}
@@ -568,7 +693,7 @@ function EstadoResultadosSection({ meses }) {
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
+      <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 mb-4">
         {loading ? (
           <p className="text-sm text-gray-500 py-4">Calculando estado de resultados...</p>
         ) : loadError ? (
@@ -581,7 +706,7 @@ function EstadoResultadosSection({ meses }) {
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
           <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
             <p className="text-sm text-gray-500">Punto de equilibrio</p>
             <div className="flex rounded-lg border border-gray-200 overflow-hidden">
@@ -657,7 +782,7 @@ function EstadoResultadosSection({ meses }) {
             </>
           )}
         </div>
-        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
           <p className="text-sm text-gray-500 mb-1">Margen neto promedio</p>
           {margenPromedio === null ? (
             <p className="text-sm text-gray-400">Sin meses con ventas todavia.</p>
@@ -825,7 +950,7 @@ function AnnualBarChart({ meses }) {
   const maxAbs = Math.max(1, ...meses.map((m) => Math.abs(m.utilidadNeta || 0)));
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5">
+    <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
       <p className="text-sm font-semibold text-gray-900 mb-4">
         Utilidad neta por mes
       </p>

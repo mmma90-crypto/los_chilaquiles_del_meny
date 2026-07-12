@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Accordion from "./Accordion";
 
 const CATEGORIAS = [
   "Sueldo",
@@ -92,6 +93,15 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
   const [retiroForm, setRetiroForm] = useState(initialRetiroForm);
   const [retiroSubmitting, setRetiroSubmitting] = useState(false);
   const [retiroError, setRetiroError] = useState(null);
+  // El arqueo de caja es el uso principal de esta pestaña.
+  const [openSections, setOpenSections] = useState({
+    arqueo: true,
+    retiros: false,
+  });
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   async function refreshData() {
     try {
@@ -232,15 +242,27 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
 
   return (
     <div className="max-w-7xl mx-auto px-6 pt-8 pb-12">
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Arqueo y retiros</h2>
+        <p className="text-sm text-gray-500">
+          Conteo real de efectivo y cuenta, y registro de retiros y gastos.
+        </p>
+      </div>
+
       {/* ARQUEO DE CAJA */}
-      <h2 className="text-xl font-bold text-gray-900 mb-1">Arqueo de caja</h2>
-      <p className="text-sm text-gray-500 mb-6">
+      <Accordion
+        title="Arqueo de caja"
+        summary={`${arqueos.length} arqueo${arqueos.length !== 1 ? "s" : ""}`}
+        isOpen={openSections.arqueo}
+        onToggle={() => toggleSection("arqueo")}
+      >
+      <p className="text-sm text-gray-500 mb-4">
         Registra el conteo real de efectivo y cuenta, y compara contra lo esperado.
       </p>
 
       <form
         onSubmit={handleArqueoSubmit}
-        className="bg-white border border-gray-200 rounded-2xl p-5 mb-4"
+        className="bg-gray-50 border border-gray-100 rounded-2xl p-5 mb-4"
       >
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
@@ -299,7 +321,7 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
       </form>
 
       {ultimoArqueo && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 mb-6">
           <p className="text-sm font-semibold text-gray-900 mb-3">
             Resultado del ultimo arqueo
           </p>
@@ -331,14 +353,14 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
       )}
 
       {arqueos.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center mb-10">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-12 text-center">
           <p className="font-medium text-gray-900">Aun no hay arqueos registrados</p>
           <p className="text-sm text-gray-500 mt-1">
             Usa el formulario de arriba para registrar tu primer arqueo.
           </p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-10">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -366,7 +388,7 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 bg-white">
                 {arqueosOrdenDesc.map((a, i) => (
                   <tr key={i} className="hover:bg-gray-50 transition-colors">
                     <td className="px-5 py-4 text-gray-500 whitespace-nowrap text-xs">
@@ -398,15 +420,22 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
         </div>
       )}
 
+      </Accordion>
+
       {/* RETIROS Y GASTOS */}
-      <h2 className="text-xl font-bold text-gray-900 mb-1">Retiros y gastos</h2>
-      <p className="text-sm text-gray-500 mb-6">
+      <Accordion
+        title="Retiros y gastos"
+        summary={`${formatCurrency(totalRetiradoMes)} este mes`}
+        isOpen={openSections.retiros}
+        onToggle={() => toggleSection("retiros")}
+      >
+      <p className="text-sm text-gray-500 mb-4">
         Registra sueldos, renta, gas y otros retiros de efectivo o cuenta.
       </p>
 
       <form
         onSubmit={handleRetiroSubmit}
-        className="bg-white border border-gray-200 rounded-2xl p-5 mb-6"
+        className="bg-gray-50 border border-gray-100 rounded-2xl p-5 mb-6"
       >
         <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-4">
           <div>
@@ -487,14 +516,14 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
       </form>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
           <p className="text-sm text-gray-500 mb-1">Total retirado este mes</p>
           <p className="text-2xl font-bold text-gray-900">
             {formatCurrency(totalRetiradoMes)}
           </p>
         </div>
         {CATEGORIAS.map((c) => (
-          <div key={c} className="bg-white border border-gray-200 rounded-2xl p-5">
+          <div key={c} className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
             <p className="text-sm text-gray-500 mb-1">{c}</p>
             <p className="text-xl font-bold text-gray-900">
               {formatCurrency(desglosePorCategoria[c])}
@@ -504,14 +533,14 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
       </div>
 
       {retiros.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-12 text-center">
           <p className="font-medium text-gray-900">Aun no hay retiros registrados</p>
           <p className="text-sm text-gray-500 mt-1">
             Usa el formulario de arriba para registrar tu primer retiro.
           </p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -533,7 +562,7 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 bg-white">
                 {retirosOrdenDesc.map((r, i) => (
                   <tr key={i} className="hover:bg-gray-50 transition-colors">
                     <td className="px-5 py-4 text-gray-500 whitespace-nowrap text-xs">
@@ -562,6 +591,7 @@ export default function CashCountSection({ initialArqueos, initialRetiros, error
           </div>
         </div>
       )}
+      </Accordion>
     </div>
   );
 }

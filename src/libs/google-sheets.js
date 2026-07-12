@@ -233,6 +233,8 @@ const PURCHASES_HEADERS = [
   "Pagado",
   "Financiado por",
   "Reembolsado",
+  "Metodo de pago compra",
+  "Tarjeta",
 ];
 
 async function getPurchasesSheet(doc) {
@@ -263,6 +265,8 @@ export async function addPurchase({
   pagado,
   financiadoPor,
   reembolsado,
+  metodoPagoCompra,
+  tarjeta,
 }) {
   const sheet = await getSheetCached(PURCHASES_SHEET_TITLE, getPurchasesSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
@@ -275,6 +279,15 @@ export async function addPurchase({
     ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
     : new Date().toLocaleDateString("es-MX");
 
+  // El metodo de pago de la compra solo aplica cuando la financia "Yo";
+  // para "Papás Vanessa" las dos columnas quedan vacias. "Tarjeta" solo se
+  // guarda si el metodo es Tarjeta de credito (en Efectivo no hay tarjeta).
+  const esFinanciadaPorMi = normalizeName(financiadoPor || "Yo") === "yo";
+  const metodoCompra = esFinanciadaPorMi ? metodoPagoCompra || "" : "";
+  const esTarjeta =
+    normalizeName(metodoCompra) === normalizeName("Tarjeta de credito");
+  const tarjetaCompra = esTarjeta ? tarjeta || "" : "";
+
   const row = await sheet.addRow({
     [h("Fecha")]: fechaFormateada,
     [h("Producto")]: producto || "",
@@ -285,6 +298,8 @@ export async function addPurchase({
     [h("Pagado")]: pagado ? "Si" : "No",
     [h("Financiado por")]: financiadoPor || "Yo",
     [h("Reembolsado")]: reembolsado ? "Si" : "No",
+    [h("Metodo de pago compra")]: metodoCompra,
+    [h("Tarjeta")]: tarjetaCompra,
   });
 
   invalidateRows(PURCHASES_SHEET_TITLE);
@@ -307,6 +322,8 @@ export async function getPurchases() {
     pagado: (row.get(h("Pagado")) || "").toLowerCase() === "si",
     financiadoPor: row.get(h("Financiado por")) || "",
     reembolsado: (row.get(h("Reembolsado")) || "").toLowerCase() === "si",
+    metodoPagoCompra: row.get(h("Metodo de pago compra")) || "",
+    tarjeta: row.get(h("Tarjeta")) || "",
     rowNumber: row.rowNumber,
   }));
 }
@@ -327,17 +344,36 @@ export async function updatePurchaseReembolso(rowNumber, reembolsado) {
   return true;
 }
 
+const TARJETAS_DEUDA = ["BBVA", "HSBC", "Banregio", "Hey", "Santander", "Otro"];
+
 // Suma el Total de las compras aun no reembolsadas, agrupado por quien las
-// financio, para saber cuanto le debe el negocio a cada quien.
+// financio, para saber cuanto le debe el negocio a cada quien. La deuda
+// "Le debo a mí mismo" (yo) se desglosa por tarjeta en yoPorTarjeta: solo son
+// deuda las compras Financiado por="Yo" pagadas con Tarjeta de credito; las
+// pagadas en Efectivo ya salieron de la caja al momento de la compra y no se
+// deben. Las compras historicas sin metodo registrado (anteriores al
+// 12/07/2026, cuando se agrego la columna) se dan por saldadas: este control
+// empieza desde esa fecha hacia adelante.
 export async function getDeudas() {
   const purchases = await getPurchases();
-  const deudas = { yo: 0, papasVanessa: 0 };
+  const yoPorTarjeta = {};
+  TARJETAS_DEUDA.forEach((t) => {
+    yoPorTarjeta[t] = 0;
+  });
+  const deudas = { yo: 0, yoPorTarjeta, papasVanessa: 0 };
   purchases.forEach((p) => {
     if (p.reembolsado) return;
     const total = Number(p.total) || 0;
     if (normalizeName(p.financiadoPor) === normalizeName("Papás Vanessa")) {
       deudas.papasVanessa += total;
     } else if (normalizeName(p.financiadoPor) === normalizeName("Yo")) {
+      const metodo = normalizeName(p.metodoPagoCompra);
+      if (metodo !== normalizeName("Tarjeta de credito")) return;
+      const bucket =
+        TARJETAS_DEUDA.find(
+          (t) => normalizeName(t) === normalizeName(p.tarjeta)
+        ) || "Otro";
+      yoPorTarjeta[bucket] += total;
       deudas.yo += total;
     }
   });
@@ -797,7 +833,8 @@ function getWeekStart(date) {
 
 // Platillos vendidos por fecha: usa VentasPorPlatillo (suma de Pollo+
 // Chicharron+Huevo+Barbacoa+Sencillo) si tiene filas con fecha valida; si no,
-// cae a contar 1 platillo por cada Pedido guardado.
+// cae a contar los platillos de cada Pedido guardado (una fila de Pedidos
+// puede traer varias ordenes de carrito, separadas por "|" en Base).
 async function getPlatillosVendidosPorFecha() {
   const ventas = await getVentasPorPlatillo();
   const ventasConFecha = ventas
@@ -810,7 +847,13 @@ async function getPlatillosVendidosPorFecha() {
 
   const orders = await getOrders();
   return orders
-    .map((o) => ({ fecha: parseFechaCompra(o.fecha), cantidad: 1 }))
+    .map((o) => ({
+      fecha: parseFechaCompra(o.fecha),
+      cantidad: Math.max(
+        1,
+        String(o.base || "").split("|").filter((s) => s.trim()).length
+      ),
+    }))
     .filter((o) => o.fecha);
 }
 
@@ -1092,7 +1135,17 @@ export async function getFixedCosts() {
 }
 
 const MANUAL_SALES_SHEET_TITLE = "VentasManuales";
-const MANUAL_SALES_HEADERS = ["Fecha", "Concepto", "Monto", "Metodo pago"];
+// Base/Proteina/Extras guardan la composicion del platillo vendido (opcional,
+// para que getPlatillosSummary tambien cuente las ventas manuales).
+const MANUAL_SALES_HEADERS = [
+  "Fecha",
+  "Concepto",
+  "Monto",
+  "Metodo pago",
+  "Base",
+  "Proteina",
+  "Extras",
+];
 
 async function getManualSalesSheet(doc) {
   let sheet = doc.sheetsByTitle[MANUAL_SALES_SHEET_TITLE];
@@ -1103,6 +1156,14 @@ async function getManualSalesSheet(doc) {
     });
   } else {
     await sheet.loadHeaderRow();
+    // Agrega las columnas nuevas (Base, Proteina, Extras) si la pestaña ya
+    // existia de una version anterior, sin tocar las filas historicas.
+    const missing = MANUAL_SALES_HEADERS.filter(
+      (label) => !sheet.headerValues.some((h) => h.toLowerCase() === label.toLowerCase())
+    );
+    if (missing.length > 0) {
+      await sheet.setHeaderRow([...sheet.headerValues, ...missing]);
+    }
   }
   return sheet;
 }
@@ -1118,10 +1179,21 @@ export async function getManualSales() {
     concepto: row.get(h("Concepto")) || "",
     monto: Number(row.get(h("Monto"))) || 0,
     metodoPago: row.get(h("Metodo pago")) || "",
+    base: row.get(h("Base")) || "",
+    proteina: row.get(h("Proteina")) || "",
+    extras: row.get(h("Extras")) || "",
   }));
 }
 
-export async function addManualSale({ fecha, concepto, monto, metodoPago }) {
+export async function addManualSale({
+  fecha,
+  concepto,
+  monto,
+  metodoPago,
+  base,
+  proteina,
+  extras,
+}) {
   const sheet = await getSheetCached(MANUAL_SALES_SHEET_TITLE, getManualSalesSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
 
@@ -1134,6 +1206,9 @@ export async function addManualSale({ fecha, concepto, monto, metodoPago }) {
     [h("Concepto")]: concepto || "",
     [h("Monto")]: Number(monto) || 0,
     [h("Metodo pago")]: metodoPago || "",
+    [h("Base")]: base || "",
+    [h("Proteina")]: proteina || "",
+    [h("Extras")]: extras || "",
   });
   invalidateRows(MANUAL_SALES_SHEET_TITLE);
 
@@ -1361,7 +1436,10 @@ export async function addArqueo({ fecha, efectivoContado, cuentaContado }) {
 // fecha (inclusive). Los retiros de "Reembolso insumos" SI se restan aqui
 // (mueven caja/cuenta realmente), a diferencia de getFinancesSummary donde se
 // excluyen de la utilidad neta para no contar el costo dos veces.
-function computeExpectedCash(hasta, { orders, manualSales, retiros, arqueos }) {
+function computeExpectedCash(
+  hasta,
+  { orders, manualSales, retiros, arqueos, purchases }
+) {
   let arqueoAnterior = null;
   arqueos.forEach((a) => {
     const fechaArqueo = parseFechaCompra(a.fecha);
@@ -1408,6 +1486,18 @@ function computeExpectedCash(hasta, { orders, manualSales, retiros, arqueos }) {
     else cuentaEsperado -= monto;
   });
 
+  // Compras financiadas por "Yo" pagadas en Efectivo: el dinero salio de la
+  // caja en el momento de la compra, asi que se restan en su fecha sin esperar
+  // a que se marquen reembolsadas. Las pagadas con Tarjeta de credito (y las
+  // de Papás Vanessa) NO se restan aqui: salen de caja/cuenta hasta que se
+  // registra el Retiro de reembolso correspondiente, como siempre.
+  (purchases || []).forEach((p) => {
+    if (!enRango(p.fecha)) return;
+    if (normalizeName(p.financiadoPor) !== "yo") return;
+    if (normalizeName(p.metodoPagoCompra) !== "efectivo") return;
+    efectivoEsperado -= Number(p.total) || 0;
+  });
+
   return {
     efectivoEsperado,
     cuentaEsperado,
@@ -1418,24 +1508,32 @@ function computeExpectedCash(hasta, { orders, manualSales, retiros, arqueos }) {
 
 export async function getExpectedCash(fecha) {
   const hasta = parseFechaISO(fecha) || new Date();
-  const [orders, manualSales, retiros, arqueos] = await Promise.all([
+  const [orders, manualSales, retiros, arqueos, purchases] = await Promise.all([
     getOrders(),
     getManualSales(),
     getRetiros(),
     getArqueos(),
+    getPurchases(),
   ]);
-  return computeExpectedCash(hasta, { orders, manualSales, retiros, arqueos });
+  return computeExpectedCash(hasta, {
+    orders,
+    manualSales,
+    retiros,
+    arqueos,
+    purchases,
+  });
 }
 
 // Arqueos ya acompañados del saldo esperado (efectivo/cuenta) calculado al
 // momento de cada uno, para que el panel muestre la comparacion esperado vs
 // contado por fila sin tener que pedir /api/cashcount una vez por fila.
 export async function getArqueosWithComparison() {
-  const [orders, manualSales, retiros, arqueos] = await Promise.all([
+  const [orders, manualSales, retiros, arqueos, purchases] = await Promise.all([
     getOrders(),
     getManualSales(),
     getRetiros(),
     getArqueos(),
+    getPurchases(),
   ]);
 
   return arqueos
@@ -1448,6 +1546,7 @@ export async function getArqueosWithComparison() {
         manualSales,
         retiros,
         arqueos,
+        purchases,
       });
       return {
         fecha: a.fecha,
@@ -1854,15 +1953,90 @@ export async function getPuntoDeEquilibrioAnual(anio) {
   };
 }
 
-// Suma el historico completo de VentasPorPlatillo columna por columna y
-// calcula el % de cada una sobre el total de piezas vendidas (todas las
-// columnas juntas), ordenado de mayor a menor.
+// Clasifica un texto de proteina en la categoria de VentasPorPlatillo que le
+// corresponde ("Chicharron prensado" -> chicharron). Devuelve null si no
+// coincide con ninguna proteina conocida.
+function categoriaDeProteina(texto) {
+  const p = normalizeName(texto);
+  if (!p) return null;
+  if (p.includes("pollo")) return "pollo";
+  if (p.includes("chicharron")) return "chicharron";
+  if (p.includes("barbacoa")) return "barbacoa";
+  if (p.includes("huevo")) return "huevo";
+  if (p.includes("sencillo")) return "sencillo";
+  return null;
+}
+
+// Suma en `totales` las piezas de un Pedido del sitio a partir de su columna
+// Proteinas ("Pollo", "2× Pollo, Barbacoa", ...). Un pedido sin proteinas
+// cuenta como un platillo sencillo. Los pedidos de carrito concatenan las
+// ordenes con " | " (cada orden sin proteina se guarda como "Sencillo"), por
+// eso se separa tambien por "|".
+function contarPedidoEnTotales(totales, proteinasTexto) {
+  const partes = String(proteinasTexto || "")
+    .split(/[,|]/)
+    .map((parte) => parte.trim())
+    .filter(Boolean);
+  if (partes.length === 0) {
+    totales.sencillo += 1;
+    return;
+  }
+  partes.forEach((parte) => {
+    const categoria = categoriaDeProteina(parte);
+    if (!categoria) return;
+    const qtyMatch = normalizeName(parte).match(/^(\d+)\s*[x×]/);
+    totales[categoria] += qtyMatch ? Number(qtyMatch[1]) || 1 : 1;
+  });
+}
+
+// Suma en `totales` la composicion de una venta manual (columnas Base,
+// Proteina y Extras de VentasManuales). Las filas sin composicion (ventas
+// registradas antes de agregar esas columnas, o montos globales tipo "Venta
+// domingo") no aportan piezas.
+function contarVentaManualEnTotales(totales, venta) {
+  const categoria = categoriaDeProteina(venta.proteina);
+  if (categoria) {
+    totales[categoria] += 1;
+  } else if (normalizeName(venta.base)) {
+    // Hay base pero sin proteina: platillo sencillo.
+    totales.sencillo += 1;
+  }
+  const extras = normalizeName(venta.extras);
+  if (extras) {
+    if (extras.includes("extra huevo")) totales.extraHuevo += 1;
+    if (extras.includes("extra salsa")) totales.extraSalsa += 1;
+    if (extras.includes("extra prensado")) totales.extraPrensado += 1;
+    if (extras.includes("extra pollo")) totales.extraPollo += 1;
+  }
+}
+
+// Suma las piezas vendidas por categoria combinando las TRES fuentes:
+// la pestaña historica VentasPorPlatillo, los Pedidos del sitio y las
+// VentasManuales con composicion. Calcula el % de cada categoria sobre el
+// total de piezas, ordenado de mayor a menor.
 export async function getPlatillosSummary() {
-  const ventas = await getVentasPorPlatillo();
+  const [ventas, orders, manualSales] = await Promise.all([
+    getVentasPorPlatillo(),
+    getOrders(),
+    getManualSales(),
+  ]);
+
+  const totalesPorKey = {};
+  PLATILLOS_CATEGORIAS.forEach(({ key }) => {
+    totalesPorKey[key] = 0;
+  });
+
+  ventas.forEach((v) => {
+    PLATILLOS_CATEGORIAS.forEach(({ key }) => {
+      totalesPorKey[key] += Number(v[key]) || 0;
+    });
+  });
+  orders.forEach((o) => contarPedidoEnTotales(totalesPorKey, o.proteinas));
+  manualSales.forEach((v) => contarVentaManualEnTotales(totalesPorKey, v));
 
   const totales = PLATILLOS_CATEGORIAS.map(({ key, label }) => ({
     categoria: label,
-    total: ventas.reduce((sum, v) => sum + (Number(v[key]) || 0), 0),
+    total: totalesPorKey[key],
   }));
 
   const totalGeneral = totales.reduce((sum, t) => sum + t.total, 0);
@@ -1875,4 +2049,88 @@ export async function getPlatillosSummary() {
     .sort((a, b) => b.total - a.total);
 
   return { platillos, totalGeneral };
+}
+
+const DISPONIBILIDAD_SHEET_TITLE = "Disponibilidad";
+const DISPONIBILIDAD_HEADERS = ["Proteina", "Activo"];
+
+async function getDisponibilidadSheet(doc) {
+  let sheet = doc.sheetsByTitle[DISPONIBILIDAD_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: DISPONIBILIDAD_SHEET_TITLE,
+      headerValues: DISPONIBILIDAD_HEADERS,
+    });
+    await sheet.addRows(
+      (menuConfig.steps.protein.options || []).map((o) => ({
+        Proteina: o.label,
+        Activo: o.activo === false ? "No" : "Si",
+      }))
+    );
+  } else {
+    await sheet.loadHeaderRow();
+  }
+  return sheet;
+}
+
+// Disponibilidad de cada proteina del menu: cruza las opciones de menu.js con
+// la pestaña Disponibilidad (Proteina / Activo). Una proteina sin fila en la
+// hoja usa su `activo` de menu.js (true por defecto). Solo "No" desactiva.
+export async function getDisponibilidadProteinas() {
+  const { sheet, rows } = await getRowsCached(
+    DISPONIBILIDAD_SHEET_TITLE,
+    getDisponibilidadSheet
+  );
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const porNombre = new Map();
+  rows.forEach((row) => {
+    const nombre = row.get(h("Proteina")) || "";
+    if (!nombre) return;
+    porNombre.set(
+      normalizeName(nombre),
+      normalizeName(row.get(h("Activo"))) !== "no"
+    );
+  });
+
+  return (menuConfig.steps.protein.options || []).map((o) => {
+    const enHoja =
+      porNombre.get(normalizeName(o.label)) ?? porNombre.get(normalizeName(o.id));
+    return {
+      id: o.id,
+      label: o.label,
+      activo: enHoja !== undefined ? enHoja : o.activo !== false,
+    };
+  });
+}
+
+// Activa o desactiva una proteina en la pestaña Disponibilidad (crea la fila
+// si no existe). `proteina` puede ser el label ("Chicharron prensado") o el id
+// ("chicharron") de menu.js.
+export async function setDisponibilidadProteina(proteina, activo) {
+  const { sheet, rows } = await getRowsCached(
+    DISPONIBILIDAD_SHEET_TITLE,
+    getDisponibilidadSheet
+  );
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const key = normalizeName(proteina);
+  const opcionMenu = (menuConfig.steps.protein.options || []).find(
+    (o) => normalizeName(o.label) === key || normalizeName(o.id) === key
+  );
+  const nombreCanonico = opcionMenu?.label || proteina;
+
+  const row = rows.find((r) => {
+    const nombre = normalizeName(r.get(h("Proteina")));
+    return nombre === key || nombre === normalizeName(nombreCanonico);
+  });
+  if (row) {
+    row.set(h("Activo"), activo ? "Si" : "No");
+    await row.save();
+  } else {
+    await sheet.addRow({
+      [h("Proteina")]: nombreCanonico,
+      [h("Activo")]: activo ? "Si" : "No",
+    });
+  }
+  invalidateRows(DISPONIBILIDAD_SHEET_TITLE);
+  return true;
 }
