@@ -31,7 +31,13 @@ const BASES_PLATILLO = [
   "Roja no picosa",
 ];
 const PROTEINAS_PLATILLO = ["Sencillo", "Pollo", "Barbacoa", "Chicharron", "Huevo"];
-const EXTRAS_PLATILLO = ["Extra huevo", "Extra salsa", "Extra prensado", "Extra pollo"];
+const EXTRAS_PLATILLO = [
+  "Extra huevo",
+  "Extra salsa",
+  "Extra prensado",
+  "Extra pollo",
+  "Extra barbacoa",
+];
 
 function todayInputValue() {
   const now = new Date();

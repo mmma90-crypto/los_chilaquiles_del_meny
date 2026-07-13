@@ -68,10 +68,18 @@ const initialForm = {
   unidad: "",
   pagado: false,
   financiadoPor: FINANCIADO_POR_OPCIONES[0],
-  reembolsado: false,
   metodoPagoCompra: METODOS_PAGO_COMPRA[0],
   tarjeta: TARJETAS_COMPRA[0],
 };
+
+// Compara textos ignorando mayusculas y acentos ("Papás Vanessa" ≈ "papas vanessa").
+function normalizeTexto(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
 
 const initialNewProductForm = {
   nombre: "",
@@ -324,6 +332,37 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
     return best;
   }, [monthPurchases]);
 
+  // Desglose itemizado de deudas pendientes, con los mismos criterios que
+  // getDeudas() en el servidor: "Yo" solo debe las compras con tarjeta de
+  // credito aun no reembolsadas (agrupadas por tarjeta); "Papás Vanessa" todas
+  // sus compras aun no reembolsadas. Se calcula desde el estado local para que
+  // las listas reaccionen al instante al marcar un reembolso.
+  const pendientesYoPorTarjeta = useMemo(() => {
+    const grupos = {};
+    purchases.forEach((p) => {
+      if (p.reembolsado) return;
+      if (normalizeTexto(p.financiadoPor) !== "yo") return;
+      if (normalizeTexto(p.metodoPagoCompra) !== "tarjeta de credito") return;
+      const bucket =
+        TARJETAS_COMPRA.find(
+          (t) => normalizeTexto(t) === normalizeTexto(p.tarjeta)
+        ) || "Otro";
+      if (!grupos[bucket]) grupos[bucket] = [];
+      grupos[bucket].push(p);
+    });
+    return grupos;
+  }, [purchases]);
+
+  const pendientesPapasVanessa = useMemo(
+    () =>
+      purchases.filter(
+        (p) =>
+          !p.reembolsado &&
+          normalizeTexto(p.financiadoPor) === "papas vanessa"
+      ),
+    [purchases]
+  );
+
   const filtered = [...withDates]
     .reverse()
     .filter((p) => (p.producto || "").toLowerCase().includes(search.toLowerCase()));
@@ -342,16 +381,30 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
 
   async function handleMarcarReembolsado(rowNumber) {
     setReembolsandoRow(rowNumber);
+    // Actualizacion optimista: el estado cambia a "Pagado"/"Sí" al instante en
+    // todas las listas (historial y desglose de deudas) y se revierte si
+    // Google Sheets no acepta el cambio.
+    const prevPurchases = purchases;
+    setPurchases((prev) =>
+      prev.map((p) =>
+        p.rowNumber === rowNumber ? { ...p, reembolsado: true } : p
+      )
+    );
     try {
       const res = await fetch("/api/purchases", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rowNumber, reembolsado: true }),
       });
-      if (!res.ok) return;
-      await refreshPurchases();
+      if (!res.ok) {
+        setPurchases(prevPurchases);
+        return;
+      }
+      const data = await res.json();
+      if (data.deudas) setDeudas(data.deudas);
     } catch {
-      // Si falla, la fila sigue mostrando "No" y se puede reintentar.
+      // Si falla, la fila vuelve a "No" y se puede reintentar.
+      setPurchases(prevPurchases);
     } finally {
       setReembolsandoRow(null);
     }
@@ -366,12 +419,26 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
       return;
     }
 
+    // El metodo de pago decide el financiamiento: en Efectivo el dinero salio
+    // de la caja del negocio al momento (no hay deuda), asi que se guarda sin
+    // "Financiado por" y con Reembolsado="Si". Con Tarjeta de credito la
+    // compra queda como deuda pendiente (Reembolsado="No"); la tarjeta solo
+    // aplica cuando financia "Yo".
+    const esEfectivo = form.metodoPagoCompra === "Efectivo";
+    const payload = {
+      ...form,
+      financiadoPor: esEfectivo ? "" : form.financiadoPor,
+      reembolsado: esEfectivo,
+      tarjeta:
+        !esEfectivo && form.financiadoPor === "Yo" ? form.tarjeta : "",
+    };
+
     setSubmitting(true);
     try {
       const res = await fetch("/api/purchases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -477,42 +544,42 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              Financiado por
+              ¿Cómo se pagó?
             </label>
             <select
-              value={form.financiadoPor}
-              onChange={(e) => setForm({ ...form, financiadoPor: e.target.value })}
+              value={form.metodoPagoCompra}
+              onChange={(e) =>
+                setForm({ ...form, metodoPagoCompra: e.target.value })
+              }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
             >
-              {FINANCIADO_POR_OPCIONES.map((f) => (
-                <option key={f} value={f}>
-                  {f}
+              {METODOS_PAGO_COMPRA.map((m) => (
+                <option key={m} value={m}>
+                  {m === "Tarjeta de credito" ? "Tarjeta de crédito" : m}
                 </option>
               ))}
             </select>
           </div>
-          {form.financiadoPor === "Yo" && (
+          {form.metodoPagoCompra === "Tarjeta de credito" && (
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
-                ¿Cómo se pagó?
+                Financiado por
               </label>
               <select
-                value={form.metodoPagoCompra}
-                onChange={(e) =>
-                  setForm({ ...form, metodoPagoCompra: e.target.value })
-                }
+                value={form.financiadoPor}
+                onChange={(e) => setForm({ ...form, financiadoPor: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-700 focus:border-transparent"
               >
-                {METODOS_PAGO_COMPRA.map((m) => (
-                  <option key={m} value={m}>
-                    {m === "Tarjeta de credito" ? "Tarjeta de crédito" : m}
+                {FINANCIADO_POR_OPCIONES.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
                   </option>
                 ))}
               </select>
             </div>
           )}
-          {form.financiadoPor === "Yo" &&
-            form.metodoPagoCompra === "Tarjeta de credito" && (
+          {form.metodoPagoCompra === "Tarjeta de credito" &&
+            form.financiadoPor === "Yo" && (
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   ¿Con qué tarjeta?
@@ -540,16 +607,6 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
                 style={{ accentColor: "#7f1d1d" }}
               />
               Pagado
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700 pb-2.5">
-              <input
-                type="checkbox"
-                checked={form.reembolsado}
-                onChange={(e) => setForm({ ...form, reembolsado: e.target.checked })}
-                className="w-4 h-4 rounded border-gray-300"
-                style={{ accentColor: "#7f1d1d" }}
-              />
-              Reembolsado
             </label>
           </div>
         </div>
@@ -781,15 +838,52 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
                   <p className="text-3xl font-bold text-gray-900">
                     {formatCurrency(deudas.yo)}
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <div className="mt-3 space-y-2">
                     {Object.entries(deudas.yoPorTarjeta || {})
                       .filter(([, monto]) => monto > 0)
-                      .map(
-                        ([tarjeta, monto]) =>
-                          `${tarjeta}: ${formatCurrency(monto)}`
-                      )
-                      .join(" · ")}
-                  </p>
+                      .map(([tarjeta, monto]) => (
+                        <details
+                          key={tarjeta}
+                          className="bg-white border border-gray-100 rounded-xl overflow-hidden"
+                        >
+                          <summary className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm cursor-pointer select-none">
+                            <span className="font-medium text-gray-700">
+                              {tarjeta}
+                            </span>
+                            <span
+                              className="font-semibold"
+                              style={{ color: "#7f1d1d" }}
+                            >
+                              {formatCurrency(monto)}
+                            </span>
+                          </summary>
+                          <div className="px-4 pb-3 divide-y divide-gray-50">
+                            {(pendientesYoPorTarjeta[tarjeta] || []).map((p) => (
+                              <div
+                                key={p.rowNumber}
+                                className="flex items-center justify-between gap-3 py-2 text-xs"
+                              >
+                                <span className="text-gray-400 whitespace-nowrap">
+                                  {p.fecha}
+                                </span>
+                                <span className="flex-1 text-gray-700 truncate">
+                                  {p.producto}
+                                </span>
+                                <span className="font-medium text-gray-900 whitespace-nowrap">
+                                  {formatCurrency(p.total)}
+                                </span>
+                              </div>
+                            ))}
+                            {(pendientesYoPorTarjeta[tarjeta] || []).length ===
+                              0 && (
+                              <p className="py-2 text-xs text-gray-400">
+                                Sin compras pendientes registradas.
+                              </p>
+                            )}
+                          </div>
+                        </details>
+                      ))}
+                  </div>
                 </>
               ) : (
                 <p className="text-3xl font-bold text-green-700">Al día ✓</p>
@@ -807,6 +901,39 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
                     {formatCurrency(ayudaPendiente)} ({ayudaPendienteRows.length} semana
                     {ayudaPendienteRows.length !== 1 ? "s" : ""})
                   </p>
+                  {pendientesPapasVanessa.length > 0 && (
+                    <details className="mt-3 bg-white border border-gray-100 rounded-xl overflow-hidden">
+                      <summary className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm cursor-pointer select-none">
+                        <span className="font-medium text-gray-700">
+                          Insumos pendientes ({pendientesPapasVanessa.length})
+                        </span>
+                        <span
+                          className="font-semibold"
+                          style={{ color: "#7f1d1d" }}
+                        >
+                          {formatCurrency(deudas.papasVanessa)}
+                        </span>
+                      </summary>
+                      <div className="px-4 pb-3 divide-y divide-gray-50">
+                        {pendientesPapasVanessa.map((p) => (
+                          <div
+                            key={p.rowNumber}
+                            className="flex items-center justify-between gap-3 py-2 text-xs"
+                          >
+                            <span className="text-gray-400 whitespace-nowrap">
+                              {p.fecha}
+                            </span>
+                            <span className="flex-1 text-gray-700 truncate">
+                              {p.producto}
+                            </span>
+                            <span className="font-medium text-gray-900 whitespace-nowrap">
+                              {formatCurrency(p.total)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </>
               ) : (
                 <p className="text-3xl font-bold text-green-700">Al día ✓</p>

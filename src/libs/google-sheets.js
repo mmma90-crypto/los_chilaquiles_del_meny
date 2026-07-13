@@ -1,5 +1,6 @@
 import { GoogleSpreadsheet } from "google-spreadsheet";
 import { JWT } from "google-auth-library";
+import { randomUUID } from "crypto";
 import { menuConfig } from "@/config/menu";
 
 function getAuth() {
@@ -279,14 +280,18 @@ export async function addPurchase({
     ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
     : new Date().toLocaleDateString("es-MX");
 
-  // El metodo de pago de la compra solo aplica cuando la financia "Yo";
-  // para "Papás Vanessa" las dos columnas quedan vacias. "Tarjeta" solo se
-  // guarda si el metodo es Tarjeta de credito (en Efectivo no hay tarjeta).
-  const esFinanciadaPorMi = normalizeName(financiadoPor || "Yo") === "yo";
-  const metodoCompra = esFinanciadaPorMi ? metodoPagoCompra || "" : "";
-  const esTarjeta =
-    normalizeName(metodoCompra) === normalizeName("Tarjeta de credito");
-  const tarjetaCompra = esTarjeta ? tarjeta || "" : "";
+  // El metodo de pago decide el financiamiento: en Efectivo el dinero salio
+  // de la caja del negocio al momento de la compra (no hay deuda), asi que
+  // "Financiado por" queda vacio y Reembolsado="Si". Con Tarjeta de credito
+  // la compra queda como deuda pendiente (Reembolsado="No") de quien la
+  // financio; "Tarjeta" solo se guarda cuando financia "Yo" (Papás Vanessa
+  // no tiene tarjetas registradas, solo se le debe en general).
+  const metodoCompra = metodoPagoCompra || "";
+  const esEfectivo = normalizeName(metodoCompra) === "efectivo";
+  const financiado = esEfectivo ? "" : financiadoPor || "Yo";
+  const tarjetaCompra =
+    !esEfectivo && normalizeName(financiado) === "yo" ? tarjeta || "" : "";
+  const reembolsadoFinal = esEfectivo || Boolean(reembolsado);
 
   const row = await sheet.addRow({
     [h("Fecha")]: fechaFormateada,
@@ -296,8 +301,8 @@ export async function addPurchase({
     [h("Unidad")]: unidad || "",
     [h("Total")]: total,
     [h("Pagado")]: pagado ? "Si" : "No",
-    [h("Financiado por")]: financiadoPor || "Yo",
-    [h("Reembolsado")]: reembolsado ? "Si" : "No",
+    [h("Financiado por")]: financiado,
+    [h("Reembolsado")]: reembolsadoFinal ? "Si" : "No",
     [h("Metodo de pago compra")]: metodoCompra,
     [h("Tarjeta")]: tarjetaCompra,
   });
@@ -619,7 +624,8 @@ const RECIPES_SEED_ROWS = [
   ["platillo", "Chilaquiles base", "Queso", 0.06, "kg"],
   ["platillo", "Chilaquiles base", "Media crema", 0.08, "kg"],
   ["platillo", "Chilaquiles base", "Cebolla morada", 0.03, "kg"],
-  ["platillo", "Chilaquiles base", "Cilantro", 0.01, "kg"],
+  // 1 manojo de cilantro rinde ~15 platillos => 1/15 = 0.0667 manojos (piezas)
+  ["platillo", "Chilaquiles base", "Cilantro", 0.0667, "pieza"],
   ["platillo", "Chilaquiles base", "Envases", 1, "pieza"],
   ["platillo", "Chilaquiles base", "Tenedores", 1, "pieza"],
   ["platillo", "Chilaquiles base", "Servilletas", 3, "pieza"],
@@ -648,7 +654,7 @@ const PRICES_SEED_ROWS = [
   ["Queso", 139, "kg"],
   ["Media crema", 36.5, "kg"],
   ["Cebolla morada", 36.9, "kg"],
-  ["Cilantro", 11.9, "kg"],
+  ["Cilantro", 11.9, "pieza"], // se vende por manojo (pieza), no por kg
   ["Envases", 1.65, "pieza"],
   ["Tenedores", 0.52, "pieza"],
   ["Servilletas", 0.083, "pieza"],
@@ -1097,6 +1103,154 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
   return resultado;
 }
 
+// Recetas agrupadas por Categoria+Nombre (ej. "salsa - Verde picosa"),
+// cada una con su lista de ingredientes { nombre, cantidad, unidad }. Incluye
+// las filas marcador (RENDIMIENTO_LITROS / SALSA_LITROS): el editor de
+// recetas las muestra y las interpreta aparte, igual que getCostAnalysis.
+export async function getRecetasAgrupadas() {
+  const { sheet, rows } = await getRowsCached(RECIPES_SHEET_TITLE, getRecipesSheet);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const groups = new Map();
+  rows.forEach((row) => {
+    const categoria = row.get(h("Categoria")) || "";
+    const nombre = row.get(h("Nombre")) || "";
+    if (!categoria && !nombre) return;
+    const key = `${normalizeName(categoria)}|||${normalizeName(nombre)}`;
+    if (!groups.has(key)) {
+      groups.set(key, { categoria, nombre, ingredientes: [] });
+    }
+    groups.get(key).ingredientes.push({
+      nombre: row.get(h("Ingrediente")) || "",
+      cantidad: Number(row.get(h("Cantidad"))) || 0,
+      unidad: row.get(h("Unidad")) || "",
+    });
+  });
+  return Array.from(groups.values());
+}
+
+// Reemplaza los ingredientes de una receta: borra las filas existentes de esa
+// Categoria+Nombre y escribe la lista nueva. Lee las filas SIN cache porque
+// va a borrar por rowNumber y una lectura cacheada podria traer numeros
+// desfasados por escrituras previas.
+export async function updateReceta(categoria, nombre, ingredientes) {
+  const sheet = await getSheetCached(RECIPES_SHEET_TITLE, getRecipesSheet);
+  const rows = await sheet.getRows();
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const catKey = normalizeName(categoria);
+  const nomKey = normalizeName(nombre);
+
+  const existentes = rows.filter(
+    (r) =>
+      normalizeName(r.get(h("Categoria"))) === catKey &&
+      normalizeName(r.get(h("Nombre"))) === nomKey
+  );
+
+  // Conserva la forma original de escribir Categoria/Nombre si la receta ya
+  // existia (ej. "Verde picosa" aunque llegue "verde picosa").
+  const categoriaFinal = existentes[0]?.get(h("Categoria")) || categoria;
+  const nombreFinal = existentes[0]?.get(h("Nombre")) || nombre;
+
+  // Borra de abajo hacia arriba para que los rowNumber no se recorran
+  // mientras se eliminan filas.
+  const ordenadas = existentes.sort((a, b) => b.rowNumber - a.rowNumber);
+  for (const row of ordenadas) {
+    await row.delete();
+  }
+
+  const limpios = (ingredientes || []).filter(
+    (ing) => String(ing.nombre || "").trim() && (Number(ing.cantidad) || 0) > 0
+  );
+  if (limpios.length > 0) {
+    await sheet.addRows(
+      limpios.map((ing) => ({
+        [h("Categoria")]: categoriaFinal,
+        [h("Nombre")]: nombreFinal,
+        [h("Ingrediente")]: String(ing.nombre).trim(),
+        [h("Cantidad")]: Number(ing.cantidad) || 0,
+        [h("Unidad")]: ing.unidad || "",
+      }))
+    );
+  }
+  invalidateRows(RECIPES_SHEET_TITLE);
+  return true;
+}
+
+// Copia todas las filas de una receta existente con un nombre nuevo, para
+// usarla como variante editable sin afectar la original.
+export async function duplicarReceta(categoria, nombreOriginal, nombreNuevo) {
+  const nuevo = String(nombreNuevo || "").trim();
+  if (!nuevo) return { ok: false, error: "Escribe el nombre de la nueva receta." };
+
+  const sheet = await getSheetCached(RECIPES_SHEET_TITLE, getRecipesSheet);
+  const rows = await sheet.getRows();
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const catKey = normalizeName(categoria);
+
+  const originales = rows.filter(
+    (r) =>
+      normalizeName(r.get(h("Categoria"))) === catKey &&
+      normalizeName(r.get(h("Nombre"))) === normalizeName(nombreOriginal)
+  );
+  if (originales.length === 0) {
+    return { ok: false, error: "No encontramos la receta original." };
+  }
+
+  const yaExiste = rows.some(
+    (r) =>
+      normalizeName(r.get(h("Categoria"))) === catKey &&
+      normalizeName(r.get(h("Nombre"))) === normalizeName(nuevo)
+  );
+  if (yaExiste) {
+    return { ok: false, error: "Ya existe una receta con ese nombre en esta categoria." };
+  }
+
+  const categoriaFinal = originales[0].get(h("Categoria")) || categoria;
+  await sheet.addRows(
+    originales.map((r) => ({
+      [h("Categoria")]: categoriaFinal,
+      [h("Nombre")]: nuevo,
+      [h("Ingrediente")]: r.get(h("Ingrediente")) || "",
+      [h("Cantidad")]: Number(r.get(h("Cantidad"))) || 0,
+      [h("Unidad")]: r.get(h("Unidad")) || "",
+    }))
+  );
+  invalidateRows(RECIPES_SHEET_TITLE);
+  return { ok: true, categoria: categoriaFinal, nombre: nuevo };
+}
+
+// Precio actual de un ingrediente con la MISMA logica que la vista "actual"
+// de getCostAnalysis: la compra mas reciente registrada en Compras y, si no
+// hay compras, el precio de PreciosBase. Devuelve { precio, fuente }.
+// Gracias al cache de lecturas, llamarla en lote (Promise.all sobre varios
+// ingredientes) comparte una sola peticion a Google por pestaña.
+export async function getPrecioIngrediente(nombreIngrediente) {
+  const key = normalizeName(nombreIngrediente);
+  const [{ sheet: pricesSheet, rows: priceRows }, purchases] = await Promise.all([
+    getRowsCached(PRICES_SHEET_TITLE, getPricesSheet),
+    getPurchases(),
+  ]);
+
+  let recent = null;
+  purchases.forEach((p) => {
+    if (normalizeName(p.producto) !== key) return;
+    const precio = Number(p.precioUnitario) || 0;
+    const fecha = parseFechaCompra(p.fecha);
+    if (!recent || (fecha && (!recent.fecha || fecha > recent.fecha))) {
+      recent = { precio, fecha };
+    }
+  });
+  if (recent) return { precio: recent.precio, fuente: "compra reciente" };
+
+  const ph = (label) => matchHeader(pricesSheet.headerValues, label);
+  const baseRow = priceRows.find(
+    (r) => normalizeName(r.get(ph("Producto"))) === key
+  );
+  if (baseRow) {
+    return { precio: Number(baseRow.get(ph("Precio"))) || 0, fuente: "precio base" };
+  }
+  return { precio: 0, fuente: "precio base" };
+}
+
 const FIXED_COSTS_SHEET_TITLE = "GastosFijos";
 const FIXED_COSTS_HEADERS = ["Concepto", "Monto mensual"];
 const FIXED_COSTS_SEED_ROWS = [
@@ -1486,16 +1640,24 @@ function computeExpectedCash(
     else cuentaEsperado -= monto;
   });
 
-  // Compras financiadas por "Yo" pagadas en Efectivo: el dinero salio de la
-  // caja en el momento de la compra, asi que se restan en su fecha sin esperar
-  // a que se marquen reembolsadas. Las pagadas con Tarjeta de credito (y las
-  // de Papás Vanessa) NO se restan aqui: salen de caja/cuenta hasta que se
-  // registra el Retiro de reembolso correspondiente, como siempre.
+  // El metodo de pago decide el efecto en caja: las compras pagadas en
+  // Efectivo salieron de la caja en el momento de la compra, asi que se
+  // restan en su fecha sin importar quien las financio. Las pagadas con
+  // Tarjeta de credito no tocan la caja hasta que se marcan Reembolsado="Si"
+  // (es cuando el dinero sale del negocio); se restan en la fecha de la
+  // compra. Las compras historicas sin metodo registrado no se restan aqui.
   (purchases || []).forEach((p) => {
     if (!enRango(p.fecha)) return;
-    if (normalizeName(p.financiadoPor) !== "yo") return;
-    if (normalizeName(p.metodoPagoCompra) !== "efectivo") return;
-    efectivoEsperado -= Number(p.total) || 0;
+    const metodo = normalizeName(p.metodoPagoCompra);
+    const total = Number(p.total) || 0;
+    if (metodo === "efectivo") {
+      efectivoEsperado -= total;
+    } else if (
+      metodo === normalizeName("Tarjeta de credito") &&
+      p.reembolsado
+    ) {
+      efectivoEsperado -= total;
+    }
   });
 
   return {
@@ -1570,6 +1732,7 @@ const VENTAS_PLATILLO_HEADERS = [
   "Extra salsa",
   "Extra prensado",
   "Extra pollo",
+  "Extra barbacoa",
 ];
 
 async function getVentasPorPlatilloSheet(doc) {
@@ -1581,6 +1744,14 @@ async function getVentasPorPlatilloSheet(doc) {
     });
   } else {
     await sheet.loadHeaderRow();
+    // Agrega las columnas nuevas (ej. "Extra barbacoa") si la pestaña ya
+    // existia de una version anterior, sin tocar las filas historicas.
+    const missing = VENTAS_PLATILLO_HEADERS.filter(
+      (label) => !sheet.headerValues.some((h) => h.toLowerCase() === label.toLowerCase())
+    );
+    if (missing.length > 0) {
+      await sheet.setHeaderRow([...sheet.headerValues, ...missing]);
+    }
   }
   return sheet;
 }
@@ -1602,6 +1773,7 @@ export async function getVentasPorPlatillo() {
     extraSalsa: Number(row.get(h("Extra salsa"))) || 0,
     extraPrensado: Number(row.get(h("Extra prensado"))) || 0,
     extraPollo: Number(row.get(h("Extra pollo"))) || 0,
+    extraBarbacoa: Number(row.get(h("Extra barbacoa"))) || 0,
   }));
 }
 
@@ -1615,6 +1787,7 @@ const PLATILLOS_CATEGORIAS = [
   { key: "extraSalsa", label: "Extra salsa" },
   { key: "extraPrensado", label: "Extra prensado" },
   { key: "extraPollo", label: "Extra pollo" },
+  { key: "extraBarbacoa", label: "Extra barbacoa" },
 ];
 
 // Los retiros cuya categoria empieza con "Reembolso" (Reembolso insumos,
@@ -2007,6 +2180,7 @@ function contarVentaManualEnTotales(totales, venta) {
     if (extras.includes("extra salsa")) totales.extraSalsa += 1;
     if (extras.includes("extra prensado")) totales.extraPrensado += 1;
     if (extras.includes("extra pollo")) totales.extraPollo += 1;
+    if (extras.includes("extra barbacoa")) totales.extraBarbacoa += 1;
   }
 }
 
@@ -2133,4 +2307,92 @@ export async function setDisponibilidadProteina(proteina, activo) {
   }
   invalidateRows(DISPONIBILIDAD_SHEET_TITLE);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// PINs de acceso temporal al panel de admin.
+//
+// La pestaña "Pines" guarda PINs de UN SOLO USO. El administrador agrega una
+// fila escribiendo solo el PIN (las demas columnas se llenan solas al usarlo).
+// Cuando el invitado entra con un PIN valido, la fila se marca como USADO con
+// un token de sesion que expira en 1 hora; ese token se guarda en una cookie.
+// Para revocar el acceso antes de la hora, basta con borrar la fila.
+
+const PINES_SHEET_TITLE = "Pines";
+const PINES_HEADERS = [
+  "PIN",
+  "Estado",
+  "Fecha de uso",
+  "Expira",
+  "Token",
+];
+const PIN_SESSION_MS = 60 * 60 * 1000; // 1 hora de acceso por PIN
+
+async function getPinesSheet(doc) {
+  let sheet = doc.sheetsByTitle[PINES_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: PINES_SHEET_TITLE,
+      headerValues: PINES_HEADERS,
+    });
+  } else {
+    await sheet.loadHeaderRow();
+    const missing = PINES_HEADERS.filter(
+      (label) => !sheet.headerValues.some((h) => h.toLowerCase() === label.toLowerCase())
+    );
+    if (missing.length > 0) {
+      await sheet.setHeaderRow([...sheet.headerValues, ...missing]);
+    }
+  }
+  return sheet;
+}
+
+// Canjea un PIN de un solo uso. Lee las filas SIN cache: el estado del PIN
+// tiene que estar fresco para que un PIN recien agregado funcione al instante
+// y uno ya usado no pueda canjearse dos veces dentro del TTL del cache.
+// Devuelve { ok: true, token } o { ok: false, error }.
+export async function canjearPin(pin) {
+  const buscado = String(pin || "").trim();
+  if (!buscado) return { ok: false, error: "Escribe el PIN." };
+
+  const sheet = await getSheetCached(PINES_SHEET_TITLE, getPinesSheet);
+  const rows = await sheet.getRows();
+  const h = (label) => matchHeader(sheet.headerValues, label);
+
+  const row = rows.find(
+    (r) => String(r.get(h("PIN")) || "").trim() === buscado
+  );
+  if (!row) {
+    return { ok: false, error: "PIN incorrecto." };
+  }
+  if (normalizeName(row.get(h("Estado"))) === "usado") {
+    return {
+      ok: false,
+      error: "Este PIN ya fue usado. Pide uno nuevo al administrador.",
+    };
+  }
+
+  const token = randomUUID();
+  const expira = new Date(Date.now() + PIN_SESSION_MS);
+  row.set(h("Estado"), "USADO");
+  row.set(h("Fecha de uso"), new Date().toLocaleString("es-MX"));
+  row.set(h("Expira"), expira.toISOString());
+  row.set(h("Token"), token);
+  await row.save();
+  invalidateRows(PINES_SHEET_TITLE);
+
+  return { ok: true, token };
+}
+
+// Valida la cookie de sesion de un invitado: el token debe existir en la
+// pestaña Pines y no haber expirado. Si el administrador borra la fila, la
+// sesion deja de ser valida (con el retraso maximo del cache de lecturas).
+export async function validateGuestToken(token) {
+  if (!token) return false;
+  const { sheet, rows } = await getRowsCached(PINES_SHEET_TITLE, getPinesSheet);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const row = rows.find((r) => (r.get(h("Token")) || "") === token);
+  if (!row) return false;
+  const expira = new Date(row.get(h("Expira")) || 0);
+  return expira.getTime() > Date.now();
 }

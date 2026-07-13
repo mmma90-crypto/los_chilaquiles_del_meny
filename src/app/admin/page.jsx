@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import {
   getLeads,
   getOrders,
+  getManualSales,
   getPurchases,
   getDeudas,
   getCostAnalysis,
@@ -10,6 +11,7 @@ import {
   getArqueosWithComparison,
   getRetiros,
   ensureAyudaSemanalActual,
+  validateGuestToken,
 } from "@/libs/google-sheets";
 import LoginForm from "./LoginForm";
 import AdminTabs from "./AdminTabs";
@@ -32,7 +34,20 @@ export default async function AdminPage() {
   // Verificar si el usuario ya inicio sesion (revisar la cookie)
   const cookieStore = await cookies();
   const token = cookieStore.get("admin_token")?.value;
-  const isAuthenticated = token === makeToken(process.env.ADMIN_PASSWORD);
+  let isAuthenticated = token === makeToken(process.env.ADMIN_PASSWORD);
+
+  // Acceso de invitado: cookie temporal creada al canjear un PIN de un solo
+  // uso (pestaña "Pines" de Google Sheets). Dura maximo 1 hora.
+  if (!isAuthenticated) {
+    const guestToken = cookieStore.get("guest_token")?.value;
+    if (guestToken) {
+      try {
+        isAuthenticated = await validateGuestToken(guestToken);
+      } catch {
+        isAuthenticated = false;
+      }
+    }
+  }
 
   if (!isAuthenticated) {
     return (
@@ -57,6 +72,16 @@ export default async function AdminPage() {
     orders = await getOrders();
   } catch (e) {
     ordersError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
+  // Cargar las ventas manuales (registradas directo por WhatsApp) para el
+  // resumen de ventas de la pestaña Pedidos y el reporte de platillos.
+  let manualSales = [];
+  let manualSalesError = null;
+  try {
+    manualSales = await getManualSales();
+  } catch (e) {
+    manualSalesError = e.message || "Error desconocido al conectar con Google Sheets.";
   }
 
   // Cargar los leads desde Google Sheets
@@ -123,6 +148,8 @@ export default async function AdminPage() {
       <AdminTabs
         orders={orders}
         ordersError={ordersError}
+        manualSales={manualSales}
+        manualSalesError={manualSalesError}
         purchases={purchases}
         deudas={deudas}
         purchasesError={purchasesError}

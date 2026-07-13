@@ -7,6 +7,7 @@ import PurchasesSection from "./PurchasesSection";
 import CostsSection from "./CostsSection";
 import FinancesSection from "./FinancesSection";
 import CashCountSection from "./CashCountSection";
+import RecipeEditor from "./RecipeEditor";
 import LeadsTable from "./LeadsTable";
 
 const SECTIONS = [
@@ -15,12 +16,15 @@ const SECTIONS = [
   { id: "costos", label: "Costos" },
   { id: "finanzas", label: "Finanzas" },
   { id: "arqueo", label: "Arqueo" },
+  { id: "recetas", label: "Recetas" },
   { id: "leads", label: "Leads" },
 ];
 
 export default function AdminTabs({
   orders,
   ordersError,
+  manualSales,
+  manualSalesError,
   purchases,
   deudas,
   purchasesError,
@@ -73,7 +77,14 @@ export default function AdminTabs({
         </div>
       </div>
 
-      {section === "pedidos" && <OrdersDashboard orders={orders} error={ordersError} />}
+      {section === "pedidos" && (
+        <OrdersDashboard
+          orders={orders}
+          error={ordersError}
+          manualSales={manualSales}
+          manualSalesError={manualSalesError}
+        />
+      )}
 
       {section === "compras" && (
         <PurchasesSection
@@ -89,6 +100,8 @@ export default function AdminTabs({
           error={costAnalysisError}
           initialPlatillos={platillos}
           platillosError={platillosError}
+          orders={orders}
+          manualSales={manualSales}
         />
       )}
 
@@ -103,6 +116,8 @@ export default function AdminTabs({
           error={cashCountError}
         />
       )}
+
+      {section === "recetas" && <RecipeEditor />}
 
       {section === "leads" && (
         <div className="max-w-7xl mx-auto px-6 pt-8">

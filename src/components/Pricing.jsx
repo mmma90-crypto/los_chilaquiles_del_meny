@@ -487,6 +487,27 @@ export default function Pricing() {
     setToppings([]);
   }
 
+  /* Reinicio total despues de enviar el pedido por WhatsApp: vacia el
+     carrito y los datos del cliente y regresa al menu para armar un pedido
+     nuevo sin recargar la pagina. Se llama con un pequeño retraso para no
+     interferir con la apertura de WhatsApp. */
+  function resetAllAfterSend() {
+    resetOrderForm();
+    setCart([]);
+    setEditingIndex(null);
+    setCustomerForm({ name: "", phone: "", address: "", accessCode: "", accessRef: "" });
+    setCustomerErrors({});
+    setAcceptedTerms(false);
+    setLocationStatus("idle");
+    setLocationUrl("");
+    setLocationMessage("");
+    setSavedOrder(null);
+    setPayMethod(null);
+    setOrderRowNumber(null);
+    setStage("menu");
+    scrollToFormTop();
+  }
+
   /* Agrega la orden configurada al carrito (o guarda la edicion) y muestra
      el resumen "Tu pedido". */
   function handleAddToCart() {
@@ -1505,6 +1526,7 @@ export default function Pricing() {
                       href={buildWhatsAppUrl(payMethod)}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => setTimeout(resetAllAfterSend, 500)}
                       style={{
                         display: "flex",
                         alignItems: "center",

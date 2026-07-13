@@ -71,6 +71,8 @@ export default function CostsSection({
   error,
   initialPlatillos,
   platillosError,
+  orders = [],
+  manualSales = [],
 }) {
   const [analysis, setAnalysis] = useState(initialAnalysis || emptyAnalysis);
   const [view, setView] = useState("actual");
@@ -266,7 +268,12 @@ export default function CostsSection({
 
       {!error && !rangoPendiente && (
         <>
-          <PlatillosSection initialPlatillos={initialPlatillos} error={platillosError} />
+          <PlatillosSection
+            initialPlatillos={initialPlatillos}
+            error={platillosError}
+            orders={orders}
+            manualSales={manualSales}
+          />
 
           {/* Mis salsas */}
           <Accordion

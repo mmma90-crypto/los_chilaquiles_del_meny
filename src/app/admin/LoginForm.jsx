@@ -1,11 +1,15 @@
 "use client";
 
 import { useActionState } from "react";
-import { loginAction } from "./actions";
+import { loginAction, loginWithPinAction } from "./actions";
 import { siteConfig } from "@/config/site";
 
 export default function LoginForm() {
   const [state, formAction, isPending] = useActionState(loginAction, null);
+  const [pinState, pinFormAction, isPinPending] = useActionState(
+    loginWithPinAction,
+    null
+  );
 
   return (
     <div className="max-w-sm w-full">
@@ -53,6 +57,50 @@ export default function LoginForm() {
             className="w-full py-3 bg-indigo-600 text-white font-medium rounded-full hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isPending ? "Entrando..." : "Entrar"}
+          </button>
+        </form>
+
+        <div className="flex items-center gap-3 my-6">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span className="text-xs text-gray-400 uppercase">o</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+
+        <form action={pinFormAction} className="space-y-4">
+          <div>
+            <label
+              htmlFor="pin"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              PIN de invitado
+            </label>
+            <input
+              id="pin"
+              name="pin"
+              type="password"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              placeholder="PIN de un solo uso"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+            />
+            <p className="mt-2 text-xs text-gray-400">
+              Acceso temporal de 1 hora. El PIN solo sirve una vez.
+            </p>
+          </div>
+
+          {pinState?.error && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2.5 rounded-lg">
+              {pinState.error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={isPinPending}
+            className="w-full py-3 bg-white text-indigo-600 font-medium rounded-full border border-indigo-200 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPinPending ? "Verificando PIN..." : "Entrar con PIN"}
           </button>
         </form>
       </div>

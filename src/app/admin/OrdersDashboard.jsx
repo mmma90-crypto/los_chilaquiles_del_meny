@@ -5,27 +5,36 @@ import { logoutAction } from "./actions";
 import { siteConfig } from "@/config/site";
 import Accordion from "./Accordion";
 
-// Las fechas se guardan con Date.toLocaleString("es-MX"), ej:
+// Las fechas de Pedidos se guardan con Date.toLocaleString("es-MX"), ej:
 // "2/7/2026, 4:33:08 a. m." — dia/mes/año, 12 horas con a. m. / p. m.
+// Las de VentasManuales usan toLocaleDateString("es-MX"): solo "2/7/2026",
+// sin hora; esas se interpretan a medianoche.
 function parseFecha(fecha) {
   if (!fecha) return null;
   const clean = fecha.replace(/[  ]/g, " ").trim();
   const match = clean.match(
-    /^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2}):(\d{2})\s*([ap])\.?\s*\.?m\.?/i
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:,?\s+(\d{1,2}):(\d{2}):(\d{2})\s*([ap])\.?\s*\.?m\.?)?/i
   );
   if (!match) return null;
   const [, dd, mm, yyyy, hh, min, ss, ampm] = match;
-  let hours = parseInt(hh, 10);
-  const isPM = ampm.toLowerCase() === "p";
-  if (isPM && hours !== 12) hours += 12;
-  if (!isPM && hours === 12) hours = 0;
+  let hours = 0;
+  let minutes = 0;
+  let seconds = 0;
+  if (hh !== undefined) {
+    hours = parseInt(hh, 10);
+    const isPM = (ampm || "").toLowerCase() === "p";
+    if (isPM && hours !== 12) hours += 12;
+    if (!isPM && hours === 12) hours = 0;
+    minutes = parseInt(min, 10);
+    seconds = parseInt(ss, 10);
+  }
   const date = new Date(
     parseInt(yyyy, 10),
     parseInt(mm, 10) - 1,
     parseInt(dd, 10),
     hours,
-    parseInt(min, 10),
-    parseInt(ss, 10)
+    minutes,
+    seconds
   );
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -76,7 +85,15 @@ const TABS = [
   { id: "month", label: "Este mes" },
 ];
 
-function groupForChart(orders, period) {
+// Colores de las dos fuentes de venta en toda la pestaña: pedidos de la
+// pagina en rojo y ventas manuales (directo por WhatsApp) en ambar.
+const COLOR_PAGINA = "#b91c1c";
+const COLOR_MANUAL = "#f59e0b";
+
+// Agrupa pedidos de la pagina y ventas manuales en las barras del periodo.
+// Cada barra trae { label, pagina, manual }. Las ventas manuales no guardan
+// hora, asi que en la vista "Hoy" se muestran como una barra propia al final.
+function groupForChart(orders, manualSales, period) {
   if (period === "today") {
     const buckets = {};
     orders.forEach((o) => {
@@ -84,74 +101,128 @@ function groupForChart(orders, period) {
       const hour = o.parsedDate.getHours();
       buckets[hour] = (buckets[hour] || 0) + (Number(o.total) || 0);
     });
-    return Object.keys(buckets)
+    const data = Object.keys(buckets)
       .map(Number)
       .sort((a, b) => a - b)
       .map((hour) => ({
         label: `${hour % 12 === 0 ? 12 : hour % 12}${hour < 12 ? "am" : "pm"}`,
-        value: buckets[hour],
+        pagina: buckets[hour],
+        manual: 0,
       }));
+    const manualTotal = manualSales.reduce((sum, v) => sum + (Number(v.monto) || 0), 0);
+    if (manualTotal > 0) {
+      data.push({ label: "Manual", pagina: 0, manual: manualTotal });
+    }
+    return data;
   }
 
   if (period === "week") {
     const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
     const weekOrder = [1, 2, 3, 4, 5, 6, 0]; // lunes a domingo
-    const buckets = {};
+    const pagina = {};
+    const manual = {};
     orders.forEach((o) => {
       if (!o.parsedDate) return;
       const day = o.parsedDate.getDay();
-      buckets[day] = (buckets[day] || 0) + (Number(o.total) || 0);
+      pagina[day] = (pagina[day] || 0) + (Number(o.total) || 0);
+    });
+    manualSales.forEach((v) => {
+      if (!v.parsedDate) return;
+      const day = v.parsedDate.getDay();
+      manual[day] = (manual[day] || 0) + (Number(v.monto) || 0);
     });
     return weekOrder.map((day) => ({
       label: dayNames[day],
-      value: buckets[day] || 0,
+      pagina: pagina[day] || 0,
+      manual: manual[day] || 0,
     }));
   }
 
   // month -> agrupa por semana del mes
-  const buckets = {};
+  const pagina = {};
+  const manual = {};
   orders.forEach((o) => {
     if (!o.parsedDate) return;
     const week = Math.ceil(o.parsedDate.getDate() / 7);
-    buckets[week] = (buckets[week] || 0) + (Number(o.total) || 0);
+    pagina[week] = (pagina[week] || 0) + (Number(o.total) || 0);
   });
-  return Object.keys(buckets)
-    .map(Number)
+  manualSales.forEach((v) => {
+    if (!v.parsedDate) return;
+    const week = Math.ceil(v.parsedDate.getDate() / 7);
+    manual[week] = (manual[week] || 0) + (Number(v.monto) || 0);
+  });
+  return Array.from(
+    new Set([...Object.keys(pagina), ...Object.keys(manual)].map(Number))
+  )
     .sort((a, b) => a - b)
     .map((week) => ({
       label: `Semana ${week}`,
-      value: buckets[week],
+      pagina: pagina[week] || 0,
+      manual: manual[week] || 0,
     }));
 }
 
-function BarChart({ data }) {
-  const max = Math.max(...data.map((d) => d.value), 0);
+function ChartLegend() {
   return (
-    <div className="flex items-end gap-2" style={{ height: 180 }}>
-      {data.map((d, i) => {
-        const isMax = max > 0 && d.value === max;
-        const barHeight = max > 0 ? Math.max((d.value / max) * 130, d.value > 0 ? 6 : 2) : 2;
-        return (
-          <div
-            key={i}
-            className="flex-1 min-w-0 h-full flex flex-col items-center justify-end gap-1.5"
-          >
-            <span className="text-[10px] text-gray-500 truncate w-full text-center">
-              {d.value > 0 ? formatCurrency(d.value) : ""}
-            </span>
+    <div className="flex items-center gap-4 mb-3">
+      <span className="flex items-center gap-1.5 text-xs text-gray-600">
+        <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: COLOR_PAGINA }} />
+        Página
+      </span>
+      <span className="flex items-center gap-1.5 text-xs text-gray-600">
+        <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: COLOR_MANUAL }} />
+        Venta manual
+      </span>
+    </div>
+  );
+}
+
+function BarChart({ data }) {
+  const max = Math.max(...data.map((d) => d.pagina + d.manual), 0);
+  return (
+    <div>
+      <ChartLegend />
+      <div className="flex items-end gap-2" style={{ height: 180 }}>
+        {data.map((d, i) => {
+          const total = d.pagina + d.manual;
+          const barHeight = max > 0 ? Math.max((total / max) * 130, total > 0 ? 6 : 2) : 2;
+          const paginaHeight = total > 0 ? (d.pagina / total) * barHeight : 0;
+          const manualHeight = total > 0 ? (d.manual / total) * barHeight : 0;
+          return (
             <div
-              className="w-full rounded-t-md transition-all"
-              style={{
-                height: `${barHeight}px`,
-                backgroundColor: isMax ? "#b91c1c" : "#fca5a5",
-              }}
-            />
-            <span className="text-[11px] text-gray-500 whitespace-nowrap">
-              {d.label}
-            </span>
-          </div>
-        );
-      })}
+              key={i}
+              className="flex-1 min-w-0 h-full flex flex-col items-center justify-end gap-1.5"
+            >
+              <span className="text-[10px] text-gray-500 truncate w-full text-center">
+                {total > 0 ? formatCurrency(total) : ""}
+              </span>
+              <div
+                className="w-full rounded-t-md overflow-hidden flex flex-col justify-end"
+                style={{ height: `${Math.max(barHeight, 2)}px` }}
+              >
+                {manualHeight > 0 && (
+                  <div
+                    className="w-full"
+                    style={{ height: `${manualHeight}px`, backgroundColor: COLOR_MANUAL }}
+                    title={`Manual: ${formatCurrency(d.manual)}`}
+                  />
+                )}
+                <div
+                  className="w-full"
+                  style={{
+                    height: `${Math.max(paginaHeight, total > 0 ? 0 : 2)}px`,
+                    backgroundColor: total > 0 ? COLOR_PAGINA : "#e5e7eb",
+                  }}
+                  title={`Página: ${formatCurrency(d.pagina)}`}
+                />
+              </div>
+              <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                {d.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -170,7 +241,12 @@ function PaymentBadge({ metodo }) {
   );
 }
 
-export default function OrdersDashboard({ orders, error }) {
+export default function OrdersDashboard({
+  orders,
+  error,
+  manualSales = [],
+  manualSalesError = null,
+}) {
   const [period, setPeriod] = useState("today");
   const [search, setSearch] = useState("");
   // La lista de pedidos es lo que mas se consulta en esta pestaña.
@@ -189,33 +265,58 @@ export default function OrdersDashboard({ orders, error }) {
     [orders]
   );
 
+  const manualWithDates = useMemo(
+    () => manualSales.map((v) => ({ ...v, parsedDate: parseFecha(v.fecha) })),
+    [manualSales]
+  );
+
   const now = useMemo(() => new Date(), []);
   const weekStart = useMemo(() => startOfWeek(now), [now]);
 
-  const periodOrders = useMemo(() => {
-    return withDates.filter((o) => {
-      if (!o.parsedDate) return false;
-      if (period === "today") return isSameDay(o.parsedDate, now);
-      if (period === "week") return o.parsedDate >= weekStart && o.parsedDate <= now;
-      return (
-        o.parsedDate.getFullYear() === now.getFullYear() &&
-        o.parsedDate.getMonth() === now.getMonth()
-      );
-    });
-  }, [withDates, period, now, weekStart]);
+  // Las ventas manuales solo guardan fecha (sin hora): para que las de hoy no
+  // queden fuera del filtro de semana/mes por ser "medianoche <= now", basta
+  // comparar contra el mismo criterio de dia.
+  function inPeriod(parsedDate) {
+    if (!parsedDate) return false;
+    if (period === "today") return isSameDay(parsedDate, now);
+    if (period === "week") return parsedDate >= weekStart && parsedDate <= now;
+    return (
+      parsedDate.getFullYear() === now.getFullYear() &&
+      parsedDate.getMonth() === now.getMonth()
+    );
+  }
+
+  const periodOrders = useMemo(
+    () => withDates.filter((o) => inPeriod(o.parsedDate)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [withDates, period, now, weekStart]
+  );
+
+  const periodManual = useMemo(
+    () => manualWithDates.filter((v) => inPeriod(v.parsedDate)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [manualWithDates, period, now, weekStart]
+  );
 
   const filtered = periodOrders.filter((order) =>
     `${order.nombre} ${order.telefono}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  const totalVentas = periodOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const totalPagina = periodOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const totalManual = periodManual.reduce((sum, v) => sum + (Number(v.monto) || 0), 0);
+  const totalVentas = totalPagina + totalManual;
   const numPedidos = periodOrders.length;
-  const promedio = numPedidos > 0 ? totalVentas / numPedidos : 0;
+  const numManuales = periodManual.length;
+  const promedio = numPedidos > 0 ? totalPagina / numPedidos : 0;
 
   const metodoMasUsado = useMemo(() => {
     const counts = {};
     periodOrders.forEach((o) => {
       const m = o.metodoPago || "Sin especificar";
+      counts[m] = (counts[m] || 0) + 1;
+    });
+    periodManual.forEach((v) => {
+      const m = v.metodoPago || "Sin especificar";
       counts[m] = (counts[m] || 0) + 1;
     });
     let best = null;
@@ -227,9 +328,12 @@ export default function OrdersDashboard({ orders, error }) {
       }
     });
     return best;
-  }, [periodOrders]);
+  }, [periodOrders, periodManual]);
 
-  const chartData = useMemo(() => groupForChart(periodOrders, period), [periodOrders, period]);
+  const chartData = useMemo(
+    () => groupForChart(periodOrders, periodManual, period),
+    [periodOrders, periodManual, period]
+  );
 
   const chartUnit =
     period === "today" ? "hora" : period === "week" ? "día" : "semana";
@@ -299,33 +403,66 @@ export default function OrdersDashboard({ orders, error }) {
 
         {!error && (
           <>
+            {manualSalesError && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 mb-6">
+                <p className="text-sm text-amber-700">
+                  No se pudieron cargar las ventas manuales; el resumen solo
+                  incluye pedidos de la página.
+                </p>
+              </div>
+            )}
+
             {/* Tarjetas de resumen */}
             <Accordion
               title="Resumen de ventas"
               summary={`${formatCurrency(totalVentas)} · ${numPedidos} pedido${
                 numPedidos !== 1 ? "s" : ""
-              }`}
+              } + ${numManuales} manual${numManuales !== 1 ? "es" : ""}`}
               isOpen={openSections.resumen}
               onToggle={() => toggleSection("resumen")}
             >
-              <div className="grid sm:grid-cols-3 gap-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
                   <p className="text-sm text-gray-500 mb-1">Total en ventas</p>
                   <p className="text-3xl font-bold text-gray-900">
                     {formatCurrency(totalVentas)}
                   </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Página + ventas manuales
+                  </p>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
-                  <p className="text-sm text-gray-500 mb-1">Número de pedidos</p>
-                  <p className="text-3xl font-bold text-gray-900">{numPedidos}</p>
+                  <p className="text-sm text-gray-500 mb-1 flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm inline-block shrink-0" style={{ backgroundColor: COLOR_PAGINA }} />
+                    Ventas de la página
+                  </p>
+                  <p className="text-3xl font-bold text-gray-900">
+                    {formatCurrency(totalPagina)}
+                  </p>
                   <p className="text-xs text-gray-400 mt-1">
-                    Promedio por pedido: {formatCurrency(promedio)}
+                    {numPedidos} pedido{numPedidos !== 1 ? "s" : ""} · promedio{" "}
+                    {formatCurrency(promedio)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
+                  <p className="text-sm text-gray-500 mb-1 flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm inline-block shrink-0" style={{ backgroundColor: COLOR_MANUAL }} />
+                    Ventas manuales
+                  </p>
+                  <p className="text-3xl font-bold text-gray-900">
+                    {formatCurrency(totalManual)}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {numManuales} venta{numManuales !== 1 ? "s" : ""} directo por WhatsApp
                   </p>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5">
                   <p className="text-sm text-gray-500 mb-1">Método de pago más usado</p>
                   <p className="text-xl font-bold text-gray-900 truncate">
                     {metodoMasUsado || "—"}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Incluye página y ventas manuales
                   </p>
                 </div>
               </div>
@@ -335,12 +472,14 @@ export default function OrdersDashboard({ orders, error }) {
             <Accordion
               title={`Ventas por ${chartUnit}`}
               summary={
-                periodOrders.length > 0 ? "gráfica del periodo" : "sin datos"
+                periodOrders.length > 0 || periodManual.length > 0
+                  ? "gráfica del periodo"
+                  : "sin datos"
               }
               isOpen={openSections.grafica}
               onToggle={() => toggleSection("grafica")}
             >
-              {periodOrders.length > 0 ? (
+              {periodOrders.length > 0 || periodManual.length > 0 ? (
                 <BarChart data={chartData} />
               ) : (
                 <p className="text-sm text-gray-400 text-center py-6">
