@@ -77,6 +77,41 @@ function matchHeader(headerValues, label) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Fechas en hora de Mexico.
+//
+// El servidor donde corre la pagina (ej. Vercel) vive en UTC, 6 horas adelante
+// de Mexico: despues de las 6 PM hora local, `new Date()` ya es el dia
+// siguiente y los registros quedaban con la fecha desfasada. Todas las fechas
+// que se escriben en las hojas o se comparan contra ellas pasan por estos
+// helpers para que el dia registrado sea el dia real en Mexico.
+const MX_TIMEZONE = "America/Mexico_City";
+
+// Fecha y hora actuales en hora de Mexico, ej: "13/7/2026, 7:45:12 p.m."
+function nowMxDateTimeString() {
+  return new Date().toLocaleString("es-MX", { timeZone: MX_TIMEZONE });
+}
+
+// Solo la fecha actual en hora de Mexico, ej: "13/7/2026"
+function nowMxDateString() {
+  return new Date().toLocaleDateString("es-MX", { timeZone: MX_TIMEZONE });
+}
+
+// "Ahora" como Date cuyos componentes (dia, mes, hora...) coinciden con el
+// reloj de Mexico, para comparar contra las fechas de las hojas (guardadas
+// como d/m/yyyy en hora de Mexico y parseadas como fechas locales).
+function nowMx() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: MX_TIMEZONE }));
+}
+
+// Convierte "YYYY-MM-DD" (valor de un <input type="date">) a "d/m/yyyy" sin
+// pasar por Date, para que el dia elegido en el formulario se guarde tal cual
+// sin desplazarse por zona horaria.
+function isoToMxDateString(iso) {
+  const [yyyy, mm, dd] = String(iso).split("-").map(Number);
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 // La hoja de Leads es la primera pestaña del documento (sin titulo fijo);
 // se cachea bajo una clave propia.
 const LEADS_CACHE_TITLE = "__leads__";
@@ -104,7 +139,7 @@ export async function getLeads() {
 const ACCEPT_TERMS_HEADER = "Acepto aviso de privacidad y terminos";
 
 function acceptTermsValue(aceptaTerminos) {
-  return aceptaTerminos ? `Si (${new Date().toLocaleString("es-MX")})` : "";
+  return aceptaTerminos ? `Si (${nowMxDateTimeString()})` : "";
 }
 
 export async function addRowToSheet({ name, email, phone, message, aceptaTerminos }) {
@@ -119,7 +154,7 @@ export async function addRowToSheet({ name, email, phone, message, aceptaTermino
   }
   const h = (label) => matchHeader(sheet.headerValues, label);
   await sheet.addRow({
-    [h("Fecha")]: new Date().toLocaleString("es-MX"),
+    [h("Fecha")]: nowMxDateTimeString(),
     [h("Nombre")]: name,
     [h("Email")]: email,
     [h("Telefono")]: phone || "",
@@ -180,7 +215,7 @@ export async function addOrderToSheet({
   const sheet = await getSheetCached(ORDERS_SHEET_TITLE, getOrdersSheet);
   const h = (label) => matchHeader(sheet.headerValues, label);
   const row = await sheet.addRow({
-    [h("Fecha")]: new Date().toLocaleString("es-MX"),
+    [h("Fecha")]: nowMxDateTimeString(),
     [h("Base")]: base || "",
     [h("Proteinas")]: proteinas || "",
     [h("Toppings")]: toppings || "",
@@ -277,8 +312,8 @@ export async function addPurchase({
   const total = precio * cant;
 
   const fechaFormateada = fecha
-    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
-    : new Date().toLocaleDateString("es-MX");
+    ? isoToMxDateString(fecha)
+    : nowMxDateString();
 
   // El metodo de pago decide el financiamiento: en Efectivo el dinero salio
   // de la caja del negocio al momento de la compra (no hay deuda), asi que
@@ -409,8 +444,8 @@ export async function addAyudaSemanal({ fecha, monto, pagado }) {
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
-    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
-    : new Date().toLocaleDateString("es-MX");
+    ? isoToMxDateString(fecha)
+    : nowMxDateString();
 
   const row = await sheet.addRow({
     [h("Fecha")]: fechaFormateada,
@@ -477,7 +512,7 @@ function getMostRecentSunday(date) {
 // ayuda") como default. Se llama al cargar el panel de admin en vez de
 // depender de un cron real: si ya existe la fila de esta semana no hace nada.
 export async function ensureAyudaSemanalActual() {
-  const domingo = getMostRecentSunday(new Date());
+  const domingo = getMostRecentSunday(nowMx());
 
   const existentes = await getAyudaSemanal();
   const yaExiste = existentes.some((a) => {
@@ -1057,7 +1092,7 @@ export async function getCostAnalysis({ desde, hasta } = {}) {
     };
   }
 
-  const hoy = new Date();
+  const hoy = nowMx();
   const hoyMedianoche = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
   const hace30Dias = new Date(hoyMedianoche);
   hace30Dias.setDate(hace30Dias.getDate() - 30);
@@ -1352,8 +1387,8 @@ export async function addManualSale({
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
-    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
-    : new Date().toLocaleDateString("es-MX");
+    ? isoToMxDateString(fecha)
+    : nowMxDateString();
 
   const row = await sheet.addRow({
     [h("Fecha")]: fechaFormateada,
@@ -1375,7 +1410,7 @@ export async function addManualSale({
 // utilidad neta por mes. Cada elemento devuelto trae `mes` en base 1
 // (enero=1 ... diciembre=12), la convencion de todo el modulo de finanzas.
 export async function getFinancesSummary({ year } = {}) {
-  const targetYear = Number(year) || new Date().getFullYear();
+  const targetYear = Number(year) || nowMx().getFullYear();
 
   const [orders, manualSales, purchases, fixedCosts, retiros] = await Promise.all([
     getOrders(),
@@ -1525,8 +1560,8 @@ export async function addRetiro({ fecha, concepto, categoria, monto, deDonde }) 
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
-    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
-    : new Date().toLocaleDateString("es-MX");
+    ? isoToMxDateString(fecha)
+    : nowMxDateString();
 
   const row = await sheet.addRow({
     [h("Fecha")]: fechaFormateada,
@@ -1571,8 +1606,8 @@ export async function addArqueo({ fecha, efectivoContado, cuentaContado }) {
   const h = (label) => matchHeader(sheet.headerValues, label);
 
   const fechaFormateada = fecha
-    ? new Date(`${fecha}T00:00:00`).toLocaleDateString("es-MX")
-    : new Date().toLocaleDateString("es-MX");
+    ? isoToMxDateString(fecha)
+    : nowMxDateString();
 
   const row = await sheet.addRow({
     [h("Fecha")]: fechaFormateada,
@@ -1669,7 +1704,7 @@ function computeExpectedCash(
 }
 
 export async function getExpectedCash(fecha) {
-  const hasta = parseFechaISO(fecha) || new Date();
+  const hasta = parseFechaISO(fecha) || nowMx();
   const [orders, manualSales, retiros, arqueos, purchases] = await Promise.all([
     getOrders(),
     getManualSales(),
@@ -1702,7 +1737,7 @@ export async function getArqueosWithComparison() {
     .map((a) => ({ ...a, fechaParsed: parseFechaCompra(a.fecha) }))
     .sort((a, b) => (a.fechaParsed?.getTime() || 0) - (b.fechaParsed?.getTime() || 0))
     .map((a) => {
-      const hasta = a.fechaParsed || new Date();
+      const hasta = a.fechaParsed || nowMx();
       const esperado = computeExpectedCash(hasta, {
         orders,
         manualSales,
@@ -1802,7 +1837,7 @@ function isRetiroOperativo(categoria) {
 // base 1 (enero=1 ... diciembre=12, como en getFinancesSummary); sin
 // argumentos usa el mes actual.
 export async function getEstadoResultados(mes, anio) {
-  const hoy = new Date();
+  const hoy = nowMx();
   const targetMes =
     mes === undefined || mes === null || mes === ""
       ? hoy.getMonth() + 1
@@ -1984,7 +2019,7 @@ function retirosOperativosPorMes(retiros) {
 // igual que getEstadoResultados; sin argumentos usa el mes actual. Los
 // platillos vendidos se comparan contra ese mes especifico.
 export async function getPuntoDeEquilibrio(mes, anio) {
-  const hoy = new Date();
+  const hoy = nowMx();
   const targetMes =
     mes === undefined || mes === null || mes === ""
       ? hoy.getMonth() + 1
@@ -2056,7 +2091,7 @@ export async function getPuntoDeEquilibrio(mes, anio) {
 // comparacion es contra el promedio real de platillos vendidos por mes en ese
 // año (total del año / meses con ventas registradas).
 export async function getPuntoDeEquilibrioAnual(anio) {
-  const hoy = new Date();
+  const hoy = nowMx();
   const targetAnio = Number(anio) || hoy.getFullYear();
 
   const [ventas, analysis, fixedCosts, retiros, ventasPorFecha] = await Promise.all([
@@ -2375,7 +2410,7 @@ export async function canjearPin(pin) {
   const token = randomUUID();
   const expira = new Date(Date.now() + PIN_SESSION_MS);
   row.set(h("Estado"), "USADO");
-  row.set(h("Fecha de uso"), new Date().toLocaleString("es-MX"));
+  row.set(h("Fecha de uso"), nowMxDateTimeString());
   row.set(h("Expira"), expira.toISOString());
   row.set(h("Token"), token);
   await row.save();

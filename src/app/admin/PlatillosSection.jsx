@@ -21,10 +21,10 @@ const CATEGORIAS = [
 ];
 
 const TABS = [
+  { id: "all", label: "Histórico" },
   { id: "today", label: "Hoy" },
   { id: "week", label: "Esta semana" },
   { id: "month", label: "Este mes" },
-  { id: "all", label: "Histórico" },
 ];
 
 // Mismo truco que google-sheets.js para quitar acentos sin poner caracteres
@@ -166,7 +166,7 @@ export default function PlatillosSection({
 }) {
   const [platillos, setPlatillos] = useState(initialPlatillos || []);
   const [loadError, setLoadError] = useState(null);
-  const [periodo, setPeriodo] = useState("today");
+  const [periodo, setPeriodo] = useState("all");
 
   useEffect(() => {
     if (initialPlatillos && initialPlatillos.length > 0) return;
