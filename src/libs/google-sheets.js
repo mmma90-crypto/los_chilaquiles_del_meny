@@ -1629,11 +1629,14 @@ function computeExpectedCash(
   hasta,
   { orders, manualSales, retiros, arqueos, purchases }
 ) {
+  // En empate de fecha gana la fila mas reciente de la hoja (>=): si hubo
+  // varios arqueos el mismo dia (ej. contar, retirar efectivo y volver a
+  // contar), el ultimo conteo es el que ya refleja los retiros de ese dia.
   let arqueoAnterior = null;
   arqueos.forEach((a) => {
     const fechaArqueo = parseFechaCompra(a.fecha);
     if (!fechaArqueo || fechaArqueo >= hasta) return;
-    if (!arqueoAnterior || fechaArqueo > arqueoAnterior.fecha) {
+    if (!arqueoAnterior || fechaArqueo >= arqueoAnterior.fecha) {
       arqueoAnterior = {
         fecha: fechaArqueo,
         efectivoContado: a.efectivoContado,
