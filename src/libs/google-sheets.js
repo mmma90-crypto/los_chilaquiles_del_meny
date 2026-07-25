@@ -872,30 +872,47 @@ function getWeekStart(date) {
   return d;
 }
 
-// Platillos vendidos por fecha: usa VentasPorPlatillo (suma de Pollo+
-// Chicharron+Huevo+Barbacoa+Sencillo) si tiene filas con fecha valida; si no,
-// cae a contar los platillos de cada Pedido guardado (una fila de Pedidos
-// puede traer varias ordenes de carrito, separadas por "|" en Base).
+// Platillos vendidos por fecha, combinando las mismas tres fuentes que
+// getPlatillosSummary: la pestaña historica VentasPorPlatillo (suma de
+// Pollo+Chicharron+Huevo+Barbacoa+Sencillo), los Pedidos del sitio y las
+// VentasManuales con composicion (Base/Proteina). Antes solo se usaba
+// VentasPorPlatillo (con Pedidos como respaldo si estaba vacia), asi que el
+// Punto de Equilibrio se quedaba congelado en cuanto se dejaba de llenar esa
+// pestaña a mano y las ventas se registraban por VentasManuales.
 async function getPlatillosVendidosPorFecha() {
-  const ventas = await getVentasPorPlatillo();
-  const ventasConFecha = ventas
-    .map((v) => ({
-      fecha: parseFechaCompra(v.fecha),
-      cantidad: v.pollo + v.chicharron + v.huevo + v.barbacoa + v.sencillo,
-    }))
-    .filter((v) => v.fecha);
-  if (ventasConFecha.length > 0) return ventasConFecha;
+  const [ventas, orders, manualSales] = await Promise.all([
+    getVentasPorPlatillo(),
+    getOrders(),
+    getManualSales(),
+  ]);
 
-  const orders = await getOrders();
-  return orders
-    .map((o) => ({
-      fecha: parseFechaCompra(o.fecha),
-      cantidad: Math.max(
-        1,
-        String(o.base || "").split("|").filter((s) => s.trim()).length
-      ),
-    }))
-    .filter((o) => o.fecha);
+  const porFecha = [];
+
+  ventas.forEach((v) => {
+    const fecha = parseFechaCompra(v.fecha);
+    if (!fecha) return;
+    const cantidad = v.pollo + v.chicharron + v.huevo + v.barbacoa + v.sencillo;
+    if (cantidad > 0) porFecha.push({ fecha, cantidad });
+  });
+
+  orders.forEach((o) => {
+    const fecha = parseFechaCompra(o.fecha);
+    if (!fecha) return;
+    const cantidad = piezasDePedido(o.proteinas).reduce(
+      (sum, p) => sum + p.cantidad,
+      0
+    );
+    if (cantidad > 0) porFecha.push({ fecha, cantidad });
+  });
+
+  manualSales.forEach((v) => {
+    const fecha = parseFechaCompra(v.fecha);
+    if (!fecha) return;
+    const tieneComposicion = categoriaDeProteina(v.proteina) || normalizeName(v.base);
+    if (tieneComposicion) porFecha.push({ fecha, cantidad: 1 });
+  });
+
+  return porFecha;
 }
 
 // Promedio de platillos vendidos por semana, usando las ultimas `numSemanas`
@@ -2178,25 +2195,32 @@ function categoriaDeProteina(texto) {
   return null;
 }
 
-// Suma en `totales` las piezas de un Pedido del sitio a partir de su columna
-// Proteinas ("Pollo", "2× Pollo, Barbacoa", ...). Un pedido sin proteinas
-// cuenta como un platillo sencillo. Los pedidos de carrito concatenan las
-// ordenes con " | " (cada orden sin proteina se guarda como "Sencillo"), por
-// eso se separa tambien por "|".
-function contarPedidoEnTotales(totales, proteinasTexto) {
+// Piezas de un Pedido del sitio a partir de su columna Proteinas ("Pollo",
+// "2× Pollo, Barbacoa", ...). Un pedido sin proteinas cuenta como un platillo
+// sencillo. Los pedidos de carrito concatenan las ordenes con " | " (cada
+// orden sin proteina se guarda como "Sencillo"), por eso se separa tambien
+// por "|". Devuelve la lista de piezas encontradas (vacia si el texto no
+// coincide con ninguna proteina conocida).
+function piezasDePedido(proteinasTexto) {
   const partes = String(proteinasTexto || "")
     .split(/[,|]/)
     .map((parte) => parte.trim())
     .filter(Boolean);
-  if (partes.length === 0) {
-    totales.sencillo += 1;
-    return;
-  }
-  partes.forEach((parte) => {
-    const categoria = categoriaDeProteina(parte);
-    if (!categoria) return;
-    const qtyMatch = normalizeName(parte).match(/^(\d+)\s*[x×]/);
-    totales[categoria] += qtyMatch ? Number(qtyMatch[1]) || 1 : 1;
+  if (partes.length === 0) return [{ categoria: "sencillo", cantidad: 1 }];
+  return partes
+    .map((parte) => {
+      const categoria = categoriaDeProteina(parte);
+      if (!categoria) return null;
+      const qtyMatch = normalizeName(parte).match(/^(\d+)\s*[x×]/);
+      return { categoria, cantidad: qtyMatch ? Number(qtyMatch[1]) || 1 : 1 };
+    })
+    .filter(Boolean);
+}
+
+// Suma en `totales` las piezas de un Pedido del sitio (ver piezasDePedido).
+function contarPedidoEnTotales(totales, proteinasTexto) {
+  piezasDePedido(proteinasTexto).forEach(({ categoria, cantidad }) => {
+    totales[categoria] += cantidad;
   });
 }
 
