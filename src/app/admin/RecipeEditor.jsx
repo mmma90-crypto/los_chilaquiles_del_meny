@@ -26,6 +26,16 @@ function utilidadBadgeClass(pct) {
   return "bg-red-100 text-red-700";
 }
 
+// Precio de venta real de una combinacion salsa+proteina, segun el menu
+// publico (steps.base + extra de proteina). Mismo criterio que CostsSection.jsx.
+function ventaPrice(proteinaNombre) {
+  const basePrice = menuConfig.steps.base.price || 0;
+  if (!proteinaNombre) return basePrice;
+  const proteinId = PROTEIN_MENU_ID[proteinaNombre];
+  const option = menuConfig.steps.protein.options.find((p) => p.id === proteinId);
+  return basePrice + (option?.price || 0);
+}
+
 // Filas especiales de la pestaña Recetas que no son insumos comprables:
 // RENDIMIENTO_LITROS (litros que rinde una salsa) y SALSA_LITROS (litros de
 // salsa que usa un platillo). Se editan como cualquier fila pero su costo se
@@ -74,6 +84,11 @@ export default function RecipeEditor() {
   // de salsas/platillo. Se lee de /api/costs (misma fuente que la pestaña
   // "Recetas y costos"); si falla, el margen se muestra sin este dato en 0.
   const [sueldoPorPlatillo, setSueldoPorPlatillo] = useState(0);
+  // Margen % promedio de hoy entre todas las combinaciones salsa+proteina
+  // (incluyendo "sencillo"), igual que el "margen promedio" de la pestaña
+  // "Costo por platillo". Se usa para estimar el precio de venta de recetas
+  // sin precio propio (salsas, platillo base, variantes como "media orden").
+  const [avgMargenPct, setAvgMargenPct] = useState(null);
 
   // Receta abierta en el editor y su borrador de ingredientes editable.
   const [selectedKey, setSelectedKey] = useState(null); // "categoria|||nombre"
@@ -108,6 +123,14 @@ export default function RecipeEditor() {
       .then((data) => {
         if (data?.actual?.sueldo?.costoPorPlatillo) {
           setSueldoPorPlatillo(data.actual.sueldo.costoPorPlatillo);
+        }
+        const combinaciones = data?.actual?.combinaciones || [];
+        if (combinaciones.length > 0) {
+          const pcts = combinaciones.map((c) => {
+            const precio = ventaPrice(c.proteina);
+            return precio > 0 ? ((precio - c.costo) / precio) * 100 : 0;
+          });
+          setAvgMargenPct(pcts.reduce((sum, p) => sum + p, 0) / pcts.length);
         }
       })
       .catch(() => {});
@@ -288,10 +311,13 @@ export default function RecipeEditor() {
 
   // Precio de venta y margen en vivo, segun la categoria de la receta abierta:
   // - Proteina: precio real = extra configurado en menu.js (steps.protein).
-  // - Salsa/Platillo: no se venden solas, van dentro del combo "sencillo" a
-  //   $100 (steps.base.price) junto con el platillo base y el sueldo
-  //   prorrateado. El margen aqui es una estimacion de ese combo, no un
-  //   precio propio de la receta.
+  // - Salsa/Platillo: no tienen precio propio. Se estima aplicando el margen
+  //   promedio de hoy entre todas las combinaciones salsa+proteina (avgMargenPct,
+  //   traido de /api/costs) al costo de esta receta (esta salsa/platillo +
+  //   platillo base + sueldo prorrateado). Asi, una receta de menos porcion
+  //   (ej. "media orden") da un precio estimado menor, con el mismo margen %
+  //   tipico del negocio, en vez de compararse siempre contra el precio de
+  //   una orden completa.
   const ventaInfo = useMemo(() => {
     if (!selected) return null;
     const basePrice = menuConfig.steps.base.price || 0;
@@ -306,27 +332,29 @@ export default function RecipeEditor() {
       return { tipo: "proteina", precioVenta, margen, pct };
     }
 
+    let costoCombo = null;
     if (categoriaSeleccionada === "salsa") {
       const costoPorLitroSalsa = rendimientoLitros > 0 ? costoTotal / rendimientoLitros : 0;
-      const costoCombo =
+      costoCombo =
         platilloComun.costoComun +
         platilloComun.salsaLitros * costoPorLitroSalsa +
         sueldoPorPlatillo;
-      const margen = basePrice - costoCombo;
-      const pct = basePrice > 0 ? (margen / basePrice) * 100 : 0;
-      return { tipo: "combo", precioVenta: basePrice, margen, pct, costoCombo };
-    }
-
-    if (categoriaSeleccionada === "platillo") {
+    } else if (categoriaSeleccionada === "platillo") {
       // costoTotal ya incluye SALSA_LITROS * avgSalsaLitro (promedio de todas
       // las salsas); solo falta sumar el sueldo prorrateado.
-      const costoCombo = costoTotal + sueldoPorPlatillo;
-      const margen = basePrice - costoCombo;
-      const pct = basePrice > 0 ? (margen / basePrice) * 100 : 0;
-      return { tipo: "combo", precioVenta: basePrice, margen, pct, costoCombo };
+      costoCombo = costoTotal + sueldoPorPlatillo;
+    } else {
+      return null;
     }
 
-    return null;
+    const margenFrac = avgMargenPct !== null ? avgMargenPct / 100 : null;
+    const estimado = margenFrac !== null && margenFrac < 1;
+    // Si aun no cargo el margen promedio (o da >=100%, imposible), cae de
+    // vuelta al precio base como aproximacion minima.
+    const precioVenta = estimado ? costoCombo / (1 - margenFrac) : basePrice;
+    const margen = precioVenta - costoCombo;
+    const pct = precioVenta > 0 ? (margen / precioVenta) * 100 : 0;
+    return { tipo: "combo", precioVenta, margen, pct, costoCombo, estimado };
   }, [
     selected,
     categoriaSeleccionada,
@@ -334,6 +362,7 @@ export default function RecipeEditor() {
     rendimientoLitros,
     platilloComun,
     sueldoPorPlatillo,
+    avgMargenPct,
   ]);
 
   async function handleSave() {
@@ -531,16 +560,21 @@ export default function RecipeEditor() {
               {ventaInfo?.tipo === "combo" && (
                 <>
                   <div className="text-right">
-                    <p className="text-xs text-gray-500">Precio de venta (combo sencillo)</p>
+                    <p className="text-xs text-gray-500">
+                      Precio de venta {ventaInfo.estimado ? "(estimado)" : "(referencia)"}
+                    </p>
                     <p className="text-2xl font-bold text-gray-900">
                       {formatCurrency(ventaInfo.precioVenta)}
                     </p>
-                    <p className="text-xs text-gray-400" title="Costo de este combo: platillo base + esta salsa + sueldo prorrateado">
+                    <p
+                      className="text-xs text-gray-400"
+                      title="Costo de este combo: platillo base + esta salsa + sueldo prorrateado"
+                    >
                       Combo cuesta {formatCurrency(ventaInfo.costoCombo)}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-gray-500">Margen estimado</p>
+                    <p className="text-xs text-gray-500">Margen</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {formatCurrency(ventaInfo.margen)}
                     </p>
@@ -560,11 +594,23 @@ export default function RecipeEditor() {
           {ventaInfo?.tipo === "combo" && (
             <div className="px-6 pt-3 -mb-1">
               <p className="text-xs text-gray-400">
-                Esta receta no tiene precio de venta propio: se vende dentro del combo
-                &quot;chilaquiles sencillos&quot; a {formatCurrency(menuConfig.steps.base.price)},
-                el mismo precio para cualquier salsa. El margen de arriba es una estimacion de
-                ese combo completo (platillo base + esta salsa + sueldo prorrateado), no de esta
-                receta aislada.
+                Esta receta no tiene precio de venta propio (no se vende sola: incluye
+                platillo base + esta salsa + sueldo prorrateado).{" "}
+                {ventaInfo.estimado ? (
+                  <>
+                    El precio de arriba es una estimacion: se le aplica a su costo el
+                    margen promedio de hoy entre todas las combinaciones salsa+proteina
+                    ({avgMargenPct.toFixed(1)}%), la misma referencia de &quot;Costo por
+                    platillo&quot; en Recetas y costos. Por eso una receta de menos porcion
+                    (ej. media orden) da un precio menor de forma automatica.
+                  </>
+                ) : (
+                  <>
+                    Aun no cargamos el margen promedio de hoy, asi que por ahora se
+                    muestra el precio base ({formatCurrency(menuConfig.steps.base.price)})
+                    como referencia.
+                  </>
+                )}
               </p>
             </div>
           )}
