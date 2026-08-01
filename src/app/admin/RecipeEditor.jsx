@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { menuConfig } from "@/config/menu";
 
 const BRAND = "#7f1d1d";
 
@@ -9,6 +10,21 @@ const CATEGORIAS = [
   { id: "platillo", label: "Platillos" },
   { id: "proteina", label: "Proteínas" },
 ];
+
+// Relaciona el "Nombre" de la receta de proteina (pestaña Recetas) con el id
+// de proteina del menu (src/config/menu.js). Mismo criterio que CostsSection.jsx.
+const PROTEIN_MENU_ID = {
+  Pollo: "pollo",
+  Barbacoa: "barbacoa",
+  Chicharron: "chicharron",
+  Huevo: "huevo",
+};
+
+function utilidadBadgeClass(pct) {
+  if (pct >= 50) return "bg-green-100 text-green-700";
+  if (pct >= 35) return "bg-amber-100 text-amber-700";
+  return "bg-red-100 text-red-700";
+}
 
 // Filas especiales de la pestaña Recetas que no son insumos comprables:
 // RENDIMIENTO_LITROS (litros que rinde una salsa) y SALSA_LITROS (litros de
@@ -54,6 +70,10 @@ export default function RecipeEditor() {
   const [precios, setPrecios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  // Sueldo prorrateado por platillo (vista "actual"), para estimar el margen
+  // de salsas/platillo. Se lee de /api/costs (misma fuente que la pestaña
+  // "Recetas y costos"); si falla, el margen se muestra sin este dato en 0.
+  const [sueldoPorPlatillo, setSueldoPorPlatillo] = useState(0);
 
   // Receta abierta en el editor y su borrador de ingredientes editable.
   const [selectedKey, setSelectedKey] = useState(null); // "categoria|||nombre"
@@ -83,6 +103,14 @@ export default function RecipeEditor() {
 
   useEffect(() => {
     loadData();
+    fetch("/api/costs")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.actual?.sueldo?.costoPorPlatillo) {
+          setSueldoPorPlatillo(data.actual.sueldo.costoPorPlatillo);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Precio actual por ingrediente (compra reciente o precio base).
@@ -138,6 +166,32 @@ export default function RecipeEditor() {
       ) || null,
     [recetas, selectedKey]
   );
+
+  // Costo comun del platillo base (ingredientes que no son SALSA_LITROS ni
+  // Sueldo) y cuantos litros de salsa usa, para estimar el combo "sencillo"
+  // de una salsa (precio de venta = $100 base, sin proteina). Se toma de la
+  // receta guardada en "recetas", salvo que sea justo la que se esta editando,
+  // en cuyo caso se usa el borrador para que se actualice en vivo.
+  const platilloComun = useMemo(() => {
+    const receta = recetas.find((r) => normalize(r.categoria) === "platillo");
+    const esRecetaAbierta =
+      receta && `platillo|||${normalize(receta.nombre)}` === selectedKey;
+    const filas = esRecetaAbierta ? draft : receta?.ingredientes || [];
+    let costoComun = 0;
+    let salsaLitros = 0;
+    filas.forEach((ing) => {
+      const n = normalize(ing.nombre);
+      const cantidad = Number(ing.cantidad) || 0;
+      if (n === "salsa_litros") {
+        salsaLitros = cantidad;
+        return;
+      }
+      if (n === "sueldo") return;
+      const precio = precioMap.get(n)?.precio || 0;
+      costoComun += precio * cantidad;
+    });
+    return { costoComun, salsaLitros };
+  }, [recetas, precioMap, draft, selectedKey]);
 
   function openReceta(receta) {
     setSelectedKey(`${normalize(receta.categoria)}|||${normalize(receta.nombre)}`);
@@ -231,6 +285,56 @@ export default function RecipeEditor() {
   );
   const rendimientoLitros = Number(rendimientoDraft?.cantidad) || 0;
   const usaSalsa = draft.some((row) => normalize(row.nombre) === "salsa_litros");
+
+  // Precio de venta y margen en vivo, segun la categoria de la receta abierta:
+  // - Proteina: precio real = extra configurado en menu.js (steps.protein).
+  // - Salsa/Platillo: no se venden solas, van dentro del combo "sencillo" a
+  //   $100 (steps.base.price) junto con el platillo base y el sueldo
+  //   prorrateado. El margen aqui es una estimacion de ese combo, no un
+  //   precio propio de la receta.
+  const ventaInfo = useMemo(() => {
+    if (!selected) return null;
+    const basePrice = menuConfig.steps.base.price || 0;
+
+    if (categoriaSeleccionada === "proteina") {
+      const proteinId = PROTEIN_MENU_ID[selected.nombre];
+      const option = menuConfig.steps.protein.options.find((o) => o.id === proteinId);
+      if (!option) return null;
+      const precioVenta = option.price || 0;
+      const margen = precioVenta - costoTotal;
+      const pct = precioVenta > 0 ? (margen / precioVenta) * 100 : 0;
+      return { tipo: "proteina", precioVenta, margen, pct };
+    }
+
+    if (categoriaSeleccionada === "salsa") {
+      const costoPorLitroSalsa = rendimientoLitros > 0 ? costoTotal / rendimientoLitros : 0;
+      const costoCombo =
+        platilloComun.costoComun +
+        platilloComun.salsaLitros * costoPorLitroSalsa +
+        sueldoPorPlatillo;
+      const margen = basePrice - costoCombo;
+      const pct = basePrice > 0 ? (margen / basePrice) * 100 : 0;
+      return { tipo: "combo", precioVenta: basePrice, margen, pct, costoCombo };
+    }
+
+    if (categoriaSeleccionada === "platillo") {
+      // costoTotal ya incluye SALSA_LITROS * avgSalsaLitro (promedio de todas
+      // las salsas); solo falta sumar el sueldo prorrateado.
+      const costoCombo = costoTotal + sueldoPorPlatillo;
+      const margen = basePrice - costoCombo;
+      const pct = basePrice > 0 ? (margen / basePrice) * 100 : 0;
+      return { tipo: "combo", precioVenta: basePrice, margen, pct, costoCombo };
+    }
+
+    return null;
+  }, [
+    selected,
+    categoriaSeleccionada,
+    costoTotal,
+    rendimientoLitros,
+    platilloComun,
+    sueldoPorPlatillo,
+  ]);
 
   async function handleSave() {
     if (!selected) return;
@@ -385,19 +489,85 @@ export default function RecipeEditor() {
                 </span>
               </h3>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-500">Costo de esta receta</p>
-              <p className="text-2xl font-bold" style={{ color: BRAND }}>
-                {formatCurrency(costoTotal)}
-              </p>
-              {categoriaSeleccionada === "salsa" && rendimientoLitros > 0 && (
-                <p className="text-xs text-gray-500">
-                  {formatCurrency(costoTotal / rendimientoLitros)} por litro (rinde{" "}
-                  {rendimientoLitros} L)
+            <div className="flex items-start gap-6 flex-wrap justify-end">
+              <div className="text-right">
+                <p className="text-xs text-gray-500">Costo de esta receta</p>
+                <p className="text-2xl font-bold" style={{ color: BRAND }}>
+                  {formatCurrency(costoTotal)}
                 </p>
+                {categoriaSeleccionada === "salsa" && rendimientoLitros > 0 && (
+                  <p className="text-xs text-gray-500">
+                    {formatCurrency(costoTotal / rendimientoLitros)} por litro (rinde{" "}
+                    {rendimientoLitros} L)
+                  </p>
+                )}
+              </div>
+
+              {ventaInfo?.tipo === "proteina" && (
+                <>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Precio de venta (extra en el menu)</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {formatCurrency(ventaInfo.precioVenta)}
+                    </p>
+                    <p className="text-xs text-gray-400">Se edita en src/config/menu.js</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Margen</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {formatCurrency(ventaInfo.margen)}
+                    </p>
+                    <span
+                      className={`inline-block mt-1 px-2.5 py-1 rounded-full text-xs font-medium ${utilidadBadgeClass(
+                        ventaInfo.pct
+                      )}`}
+                    >
+                      {ventaInfo.pct.toFixed(1)}%
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {ventaInfo?.tipo === "combo" && (
+                <>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Precio de venta (combo sencillo)</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {formatCurrency(ventaInfo.precioVenta)}
+                    </p>
+                    <p className="text-xs text-gray-400" title="Costo de este combo: platillo base + esta salsa + sueldo prorrateado">
+                      Combo cuesta {formatCurrency(ventaInfo.costoCombo)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Margen estimado</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {formatCurrency(ventaInfo.margen)}
+                    </p>
+                    <span
+                      className={`inline-block mt-1 px-2.5 py-1 rounded-full text-xs font-medium ${utilidadBadgeClass(
+                        ventaInfo.pct
+                      )}`}
+                    >
+                      {ventaInfo.pct.toFixed(1)}%
+                    </span>
+                  </div>
+                </>
               )}
             </div>
           </div>
+
+          {ventaInfo?.tipo === "combo" && (
+            <div className="px-6 pt-3 -mb-1">
+              <p className="text-xs text-gray-400">
+                Esta receta no tiene precio de venta propio: se vende dentro del combo
+                &quot;chilaquiles sencillos&quot; a {formatCurrency(menuConfig.steps.base.price)},
+                el mismo precio para cualquier salsa. El margen de arriba es una estimacion de
+                ese combo completo (platillo base + esta salsa + sueldo prorrateado), no de esta
+                receta aislada.
+              </p>
+            </div>
+          )}
 
           <div className="px-6 py-4 overflow-x-auto">
             <table className="w-full text-sm">
