@@ -89,6 +89,10 @@ export default function RecipeEditor() {
   // "Costo por platillo". Se usa para estimar el precio de venta de recetas
   // sin precio propio (salsas, platillo base, variantes como "media orden").
   const [avgMargenPct, setAvgMargenPct] = useState(null);
+  // Margen % que el usuario decide usar en vez del promedio automatico, para
+  // recetas sin precio propio (salsa/platillo). null = usar avgMargenPct tal
+  // cual. Se reinicia cada vez que se abre una receta distinta.
+  const [margenOverride, setMargenOverride] = useState(null);
 
   // Receta abierta en el editor y su borrador de ingredientes editable.
   const [selectedKey, setSelectedKey] = useState(null); // "categoria|||nombre"
@@ -225,12 +229,14 @@ export default function RecipeEditor() {
         unidad: ing.unidad,
       }))
     );
+    setMargenOverride(null);
     setNotice(null);
   }
 
   function closeEditor() {
     setSelectedKey(null);
     setDraft([]);
+    setMargenOverride(null);
     setNotice(null);
   }
 
@@ -347,14 +353,17 @@ export default function RecipeEditor() {
       return null;
     }
 
-    const margenFrac = avgMargenPct !== null ? avgMargenPct / 100 : null;
+    // El usuario puede sobreescribir el margen sugerido (margenOverride); si
+    // no, se usa el promedio automatico (avgMargenPct).
+    const margenUsado = margenOverride !== null ? margenOverride : avgMargenPct;
+    const margenFrac = margenUsado !== null ? margenUsado / 100 : null;
     const estimado = margenFrac !== null && margenFrac < 1;
     // Si aun no cargo el margen promedio (o da >=100%, imposible), cae de
     // vuelta al precio base como aproximacion minima.
     const precioVenta = estimado ? costoCombo / (1 - margenFrac) : basePrice;
     const margen = precioVenta - costoCombo;
     const pct = precioVenta > 0 ? (margen / precioVenta) * 100 : 0;
-    return { tipo: "combo", precioVenta, margen, pct, costoCombo, estimado };
+    return { tipo: "combo", precioVenta, margen, pct, costoCombo, estimado, margenUsado };
   }, [
     selected,
     categoriaSeleccionada,
@@ -363,6 +372,7 @@ export default function RecipeEditor() {
     platilloComun,
     sueldoPorPlatillo,
     avgMargenPct,
+    margenOverride,
   ]);
 
   async function handleSave() {
@@ -568,23 +578,45 @@ export default function RecipeEditor() {
                     </p>
                     <p
                       className="text-xs text-gray-400"
-                      title="Costo de este combo: platillo base + esta salsa + sueldo prorrateado"
+                      title="Ingredientes de esta receta + sueldo prorrateado"
                     >
-                      Combo cuesta {formatCurrency(ventaInfo.costoCombo)}
+                      Costo total (con sueldo): {formatCurrency(ventaInfo.costoCombo)}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500">Margen</p>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        max="95"
+                        step="0.5"
+                        value={
+                          ventaInfo.margenUsado !== null
+                            ? Number(ventaInfo.margenUsado.toFixed(1))
+                            : ""
+                        }
+                        onChange={(e) =>
+                          setMargenOverride(
+                            e.target.value === "" ? null : Number(e.target.value)
+                          )
+                        }
+                        className="w-16 border border-gray-300 rounded-lg px-1.5 py-0.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-red-900/20"
+                      />
+                      <span className="text-sm text-gray-500">%</span>
+                    </div>
                     <p className="text-2xl font-bold text-gray-900">
                       {formatCurrency(ventaInfo.margen)}
                     </p>
-                    <span
-                      className={`inline-block mt-1 px-2.5 py-1 rounded-full text-xs font-medium ${utilidadBadgeClass(
-                        ventaInfo.pct
-                      )}`}
-                    >
-                      {ventaInfo.pct.toFixed(1)}%
-                    </span>
+                    {margenOverride !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setMargenOverride(null)}
+                        className="text-xs underline text-gray-400 hover:text-gray-600"
+                      >
+                        Usar promedio ({avgMargenPct !== null ? avgMargenPct.toFixed(1) : "—"}%)
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -599,10 +631,13 @@ export default function RecipeEditor() {
                 {ventaInfo.estimado ? (
                   <>
                     El precio de arriba es una estimacion: se le aplica a su costo el
-                    margen promedio de hoy entre todas las combinaciones salsa+proteina
-                    ({avgMargenPct.toFixed(1)}%), la misma referencia de &quot;Costo por
-                    platillo&quot; en Recetas y costos. Por eso una receta de menos porcion
-                    (ej. media orden) da un precio menor de forma automatica.
+                    margen de {ventaInfo.margenUsado.toFixed(1)}%
+                    {margenOverride !== null
+                      ? " que escribiste arriba"
+                      : " (promedio de hoy entre todas las combinaciones salsa+proteina, la misma referencia de “Costo por platillo” en Recetas y costos)"}
+                    . Por eso una receta de menos porcion (ej. media orden) da un precio
+                    menor de forma automatica, y puedes bajar el margen a mano si quieres
+                    un precio mas competitivo.
                   </>
                 ) : (
                   <>
