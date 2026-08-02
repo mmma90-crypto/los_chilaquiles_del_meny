@@ -688,31 +688,26 @@ export default function Pricing() {
     if (!savedOrder) return "#";
     const c = savedOrder.customer;
     const payLabels = PAY_METHOD_LABELS;
-    const varias = savedOrder.ordenes.length > 1;
+    const folio = orderRowNumber ? ` #${String(orderRowNumber).padStart(3, "0")}` : "";
 
     // Cada orden del carrito con su propio bloque de detalle.
     const bloquesOrdenes = savedOrder.ordenes.flatMap((orden, i) => [
-      varias ? `*Orden ${i + 1}* ($${orden.total}):` : "*Mi pedido:*",
-      ...orden.lines.map((l) => `• ${l.label}: ${l.value}`),
-      orden.nota ? `• Instrucciones: ${orden.nota}` : null,
+      `ORDEN ${i + 1} — $${orden.total}`,
+      ...orden.lines.map((l) => `${l.label}: ${l.value}`),
+      orden.nota ? `Notas: ${orden.nota}` : null,
       "",
     ].filter((l) => l !== null));
 
     const msgLines = [
-      "¡Hola! Quiero hacer un pedido 🌮🌶️",
+      `🌶️ Chilaquiles del Meny — PEDIDO${folio}`,
       "",
       ...bloquesOrdenes,
-      `*Total${varias ? " general" : ""}: $${savedOrder.total}*`,
-      "",
-      "*Datos de entrega:*",
-      `Nombre: ${c.name}`,
-      `Teléfono: ${c.phone}`,
-      `Dirección: ${c.address}`,
-      c.locationUrl ? `Ubicación: ${c.locationUrl}` : null,
+      `TOTAL: $${savedOrder.total}`,
+      `📍 ${c.address}`,
+      c.locationUrl ? `🔗 ${c.locationUrl}` : null,
       c.accessCode ? `Código de acceso: ${c.accessCode}` : null,
       c.accessRef ? `Referencia: ${c.accessRef}` : null,
-      "",
-      `*Pago:* ${payLabels[method] || method}`,
+      `💵 Pago: ${payLabels[method] || method}`,
     ]
       .filter((l) => l !== null)
       .join("\n");

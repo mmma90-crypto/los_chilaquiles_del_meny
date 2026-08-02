@@ -82,7 +82,7 @@ export const menuConfig = {
     emptyMessage: "Elige una base para empezar tu pedido.",
     continueButton: "Continuar",
     baseLabel: "Base",
-    proteinLabel: "Proteina",
+    proteinLabel: "Proteína",
     toppingsLabel: "Toppings",
     noneSelected: "Ninguno",
   },

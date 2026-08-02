@@ -24,23 +24,51 @@ async function isAuthenticated() {
 // Avisa por Telegram cuando se guarda un pedido nuevo, sin depender de que el
 // cliente llegue a mandar el WhatsApp de confirmacion. Corre del lado del
 // servidor (nunca en el navegador) para no exponer el token del bot.
-async function notifyTelegram(pedido) {
+// El carrito viaja en una sola fila: Base/Proteinas/Toppings/Precios
+// concatenan cada orden con " | ". Aqui se separan para armar un bloque por
+// orden, igual que ya hace splitPedidoOrdenes() en OrdersDashboard.
+function splitPedidoOrdenes(pedido) {
+  const split = (value) => String(value || "").split("|").map((s) => s.trim());
+  const bases = split(pedido.base);
+  const proteinas = split(pedido.proteinas);
+  const toppings = split(pedido.toppings);
+  const precios = split(pedido.precios);
+  const numOrdenes = Math.max(bases.length, proteinas.length, toppings.length);
+  return Array.from({ length: numOrdenes }, (_, i) => ({
+    detalle: [bases[i], proteinas[i]].filter(Boolean).join(" + "),
+    toppings: toppings[i] || "",
+    precio: precios[i] || "",
+  })).filter((o) => o.detalle);
+}
+
+// Avisa por Telegram cuando se guarda un pedido nuevo, sin depender de que el
+// cliente llegue a mandar el WhatsApp de confirmacion. Corre del lado del
+// servidor (nunca en el navegador) para no exponer el token del bot. El
+// metodo de pago todavia no se conoce en este punto (se elige en la pantalla
+// siguiente), asi que no aparece aqui.
+async function notifyTelegram(pedido, rowNumber) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return; // Sin configurar: no truena, solo no avisa.
 
+  const folio = rowNumber ? ` #${String(rowNumber).padStart(3, "0")}` : "";
+  const bloquesOrdenes = splitPedidoOrdenes(pedido).map((o, i) => {
+    const precio = o.precio ? ` — $${o.precio}` : "";
+    return [`ORDEN ${i + 1}${precio}`, o.detalle, o.toppings ? `Toppings: ${o.toppings}` : null]
+      .filter(Boolean)
+      .join("\n");
+  });
+
   const texto = [
-    "🌶️ *Nuevo pedido*",
+    `🔔 NUEVO PEDIDO${folio}`,
     `💰 Total: $${pedido.total ?? ""}`,
     "",
-    `Base: ${pedido.base || "—"}`,
-    pedido.proteinas ? `Proteinas: ${pedido.proteinas}` : null,
-    pedido.toppings ? `Toppings: ${pedido.toppings}` : null,
+    bloquesOrdenes.join("\n\n"),
     "",
-    `Nombre: ${pedido.nombre || "—"}`,
-    `Telefono: ${pedido.telefono || "—"}`,
-    `Direccion: ${pedido.direccion || "—"}`,
-    pedido.ubicacion ? `Ubicacion: ${pedido.ubicacion}` : null,
+    `🙋 Nombre: ${pedido.nombre || "—"}`,
+    `📱 WhatsApp cliente: ${pedido.telefono || "—"}`,
+    `📍 ${pedido.direccion || "—"}`,
+    pedido.ubicacion ? `🗺️ ${pedido.ubicacion}` : null,
   ]
     .filter((l) => l !== null)
     .join("\n");
@@ -49,7 +77,7 @@ async function notifyTelegram(pedido) {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: "Markdown" }),
+      body: JSON.stringify({ chat_id: chatId, text: texto }),
     });
   } catch (error) {
     // No bloquea el guardado del pedido si Telegram falla.
@@ -113,7 +141,7 @@ export async function POST(request) {
   // mande). Se espera a que termine (aunque sea un momento) porque en un
   // entorno serverless la funcion puede cortarse justo despues de responder,
   // dejando el fetch a Telegram a medias.
-  await notifyTelegram(body);
+  await notifyTelegram(body, result.rowNumber);
 
   return NextResponse.json({ success: true, rowNumber: result.rowNumber });
 }
