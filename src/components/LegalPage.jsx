@@ -1,3 +1,4 @@
+import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
@@ -90,7 +91,7 @@ export default function LegalPage({ content }) {
       <Header />
       <main style={{ background: "#FFF6EA" }}>
         <div style={{ maxWidth: 800, margin: "0 auto", padding: "40px 24px 80px" }}>
-          <a
+          <Link
             href="/"
             style={{
               display: "inline-flex",
@@ -109,7 +110,7 @@ export default function LegalPage({ content }) {
             }}
           >
             ← Volver al inicio
-          </a>
+          </Link>
 
           <article
             style={{

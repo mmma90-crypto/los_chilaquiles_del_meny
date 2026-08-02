@@ -1,5 +1,81 @@
 import { NextResponse } from "next/server";
-import { addOrderToSheet, updateOrderPaymentMethod } from "@/libs/google-sheets";
+import { cookies } from "next/headers";
+import {
+  addOrderToSheet,
+  deleteOrder,
+  getOrders,
+  updateOrderPaymentMethod,
+  updateOrderStatus,
+  ORDER_STATUSES,
+} from "@/libs/google-sheets";
+
+function makeToken(password) {
+  return Buffer.from(password).toString("base64");
+}
+
+async function isAuthenticated() {
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminPassword) return false;
+  const cookieStore = await cookies();
+  const token = cookieStore.get("admin_token")?.value;
+  return token === makeToken(adminPassword);
+}
+
+// Avisa por Telegram cuando se guarda un pedido nuevo, sin depender de que el
+// cliente llegue a mandar el WhatsApp de confirmacion. Corre del lado del
+// servidor (nunca en el navegador) para no exponer el token del bot.
+async function notifyTelegram(pedido) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return; // Sin configurar: no truena, solo no avisa.
+
+  const texto = [
+    "🌶️ *Nuevo pedido*",
+    `💰 Total: $${pedido.total ?? ""}`,
+    "",
+    `Base: ${pedido.base || "—"}`,
+    pedido.proteinas ? `Proteinas: ${pedido.proteinas}` : null,
+    pedido.toppings ? `Toppings: ${pedido.toppings}` : null,
+    "",
+    `Nombre: ${pedido.nombre || "—"}`,
+    `Telefono: ${pedido.telefono || "—"}`,
+    `Direccion: ${pedido.direccion || "—"}`,
+    pedido.ubicacion ? `Ubicacion: ${pedido.ubicacion}` : null,
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: "Markdown" }),
+    });
+  } catch (error) {
+    // No bloquea el guardado del pedido si Telegram falla.
+    console.error("Error al avisar por Telegram:", error);
+  }
+}
+
+// GET es solo para el admin: la lista de pedidos trae datos personales del
+// cliente (telefono, direccion). El panel la usa para refrescar la lista de
+// pedidos sin recargar la pagina (ver seguimiento de estado en vivo).
+export async function GET() {
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  }
+
+  try {
+    const orders = await getOrders();
+    return NextResponse.json({ orders });
+  } catch (error) {
+    console.error("Error al leer los pedidos:", error);
+    return NextResponse.json(
+      { error: "No pudimos leer los pedidos." },
+      { status: 500 }
+    );
+  }
+}
 
 export async function POST(request) {
   let body;
@@ -32,6 +108,13 @@ export async function POST(request) {
     );
   }
 
+  // El aviso se manda ya con el pedido guardado, sin esperar a que el
+  // cliente llegue a mandar el WhatsApp de confirmacion (que puede que nunca
+  // mande). Se espera a que termine (aunque sea un momento) porque en un
+  // entorno serverless la funcion puede cortarse justo despues de responder,
+  // dejando el fetch a Telegram a medias.
+  await notifyTelegram(body);
+
   return NextResponse.json({ success: true, rowNumber: result.rowNumber });
 }
 
@@ -46,9 +129,38 @@ export async function PATCH(request) {
     );
   }
 
-  const { rowNumber, metodoPago } = body;
+  const { rowNumber, metodoPago, estado } = body;
 
-  if (!rowNumber || !metodoPago?.trim()) {
+  if (!rowNumber) {
+    return NextResponse.json(
+      { error: "Faltan datos para actualizar el pedido." },
+      { status: 400 }
+    );
+  }
+
+  // Cambio de estado (pendiente/en camino/entregado): solo el admin desde el
+  // panel. El metodo de pago (abajo) lo sigue mandando el cliente justo
+  // despues de pagar, sin sesion, como ya funcionaba.
+  if (estado !== undefined) {
+    if (!(await isAuthenticated())) {
+      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+    }
+    if (!ORDER_STATUSES.includes(estado)) {
+      return NextResponse.json({ error: "Estado invalido." }, { status: 400 });
+    }
+    try {
+      await updateOrderStatus(rowNumber, estado);
+    } catch (error) {
+      console.error("Error al actualizar el estado del pedido:", error);
+      return NextResponse.json(
+        { error: "No pudimos actualizar el estado del pedido." },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ success: true });
+  }
+
+  if (!metodoPago?.trim()) {
     return NextResponse.json(
       { error: "Faltan datos para actualizar el pedido." },
       { status: 400 }
@@ -61,6 +173,51 @@ export async function PATCH(request) {
     console.error("Error al actualizar el metodo de pago en Google Sheets:", error);
     return NextResponse.json(
       { error: "No pudimos actualizar el metodo de pago." },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ success: true });
+}
+
+// Elimina un pedido. Solo el admin, y solo con confirmacion ya resuelta del
+// lado del panel (la accion no se puede deshacer).
+export async function DELETE(request) {
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Los datos enviados no tienen el formato correcto." },
+      { status: 400 }
+    );
+  }
+
+  const { rowNumber } = body;
+
+  if (!rowNumber) {
+    return NextResponse.json(
+      { error: "Falta el numero de fila del pedido." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const deleted = await deleteOrder(rowNumber);
+    if (!deleted) {
+      return NextResponse.json(
+        { error: "No encontramos ese pedido." },
+        { status: 404 }
+      );
+    }
+  } catch (error) {
+    console.error("Error al eliminar el pedido en Google Sheets:", error);
+    return NextResponse.json(
+      { error: "No pudimos eliminar el pedido." },
       { status: 500 }
     );
   }

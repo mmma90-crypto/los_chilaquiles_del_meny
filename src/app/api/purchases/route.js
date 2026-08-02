@@ -94,7 +94,7 @@ export async function PATCH(request) {
     );
   }
 
-  const { rowNumber, reembolsado } = body;
+  const { rowNumber, reembolsado, deDondeReembolso } = body;
 
   if (!rowNumber) {
     return NextResponse.json(
@@ -104,7 +104,7 @@ export async function PATCH(request) {
   }
 
   try {
-    const updated = await updatePurchaseReembolso(rowNumber, reembolsado);
+    const updated = await updatePurchaseReembolso(rowNumber, reembolsado, deDondeReembolso);
     if (!updated) {
       return NextResponse.json(
         { error: "No encontramos esa compra." },

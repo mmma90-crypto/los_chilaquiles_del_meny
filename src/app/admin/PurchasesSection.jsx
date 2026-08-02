@@ -100,7 +100,6 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
   // Registrar compras es el uso principal de esta pestaña.
   const [openSections, setOpenSections] = useState({
     registrar: true,
-    disponibilidad: false,
     resumen: false,
     deudas: false,
     insumos: false,
@@ -124,53 +123,6 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
   const [ayudaSemanal, setAyudaSemanal] = useState([]);
   const [ayudaPendiente, setAyudaPendiente] = useState(0);
   const [marcandoAyudaRow, setMarcandoAyudaRow] = useState(null);
-
-  // Disponibilidad de proteinas (pestaña "Disponibilidad" de Google Sheets):
-  // controla que proteinas se ofrecen en el formulario de pedido del sitio.
-  const [disponibilidad, setDisponibilidad] = useState([]);
-  const [togglingProteina, setTogglingProteina] = useState(null);
-
-  useEffect(() => {
-    async function loadDisponibilidad() {
-      try {
-        const res = await fetch("/api/disponibilidad");
-        if (!res.ok) return;
-        const data = await res.json();
-        setDisponibilidad(data.proteinas || []);
-      } catch {
-        // Si falla, la seccion muestra el aviso de "sin datos".
-      }
-    }
-    loadDisponibilidad();
-  }, []);
-
-  async function handleToggleDisponibilidad(proteina) {
-    const nuevoActivo = !proteina.activo;
-    setTogglingProteina(proteina.id);
-    // Actualizacion optimista: el switch responde al instante y se revierte
-    // si Google Sheets no acepta el cambio.
-    setDisponibilidad((prev) =>
-      prev.map((p) => (p.id === proteina.id ? { ...p, activo: nuevoActivo } : p))
-    );
-    try {
-      const res = await fetch("/api/disponibilidad", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proteina: proteina.label, activo: nuevoActivo }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (data.proteinas) setDisponibilidad(data.proteinas);
-    } catch {
-      setDisponibilidad((prev) =>
-        prev.map((p) =>
-          p.id === proteina.id ? { ...p, activo: proteina.activo } : p
-        )
-      );
-    } finally {
-      setTogglingProteina(null);
-    }
-  }
 
   async function refreshAyuda() {
     try {
@@ -379,7 +331,7 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
     }
   }
 
-  async function handleMarcarReembolsado(rowNumber) {
+  async function handleMarcarReembolsado(rowNumber, deDondeReembolso) {
     setReembolsandoRow(rowNumber);
     // Actualizacion optimista: el estado cambia a "Pagado"/"Sí" al instante en
     // todas las listas (historial y desglose de deudas) y se revierte si
@@ -387,14 +339,16 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
     const prevPurchases = purchases;
     setPurchases((prev) =>
       prev.map((p) =>
-        p.rowNumber === rowNumber ? { ...p, reembolsado: true } : p
+        p.rowNumber === rowNumber
+          ? { ...p, reembolsado: true, pagado: true, deDondeReembolso }
+          : p
       )
     );
     try {
       const res = await fetch("/api/purchases", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, reembolsado: true }),
+        body: JSON.stringify({ rowNumber, reembolsado: true, deDondeReembolso }),
       });
       if (!res.ok) {
         setPurchases(prevPurchases);
@@ -698,73 +652,6 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
           {submitting ? "Registrando..." : "Registrar compra"}
         </button>
       </form>
-      </Accordion>
-
-      {/* Disponibilidad de proteinas del menu del sitio */}
-      <Accordion
-        title="Disponibilidad de proteínas"
-        summary={
-          disponibilidad.length > 0
-            ? disponibilidad.every((p) => p.activo)
-              ? "todas disponibles ✓"
-              : `agotadas: ${disponibilidad
-                  .filter((p) => !p.activo)
-                  .map((p) => p.label)
-                  .join(", ")}`
-            : "cargando..."
-        }
-        isOpen={openSections.disponibilidad}
-        onToggle={() => toggleSection("disponibilidad")}
-      >
-        <p className="text-sm text-gray-500 mb-4">
-          Apaga una proteína cuando se agote: en el formulario de pedido del
-          sitio aparecerá como &ldquo;Agotado&rdquo; y no se podrá elegir.
-        </p>
-        {disponibilidad.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            No pudimos cargar la disponibilidad. Recarga la página para
-            reintentar.
-          </p>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-3">
-            {disponibilidad.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center justify-between gap-3 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {p.label}
-                  </p>
-                  <p
-                    className={`text-xs font-medium ${
-                      p.activo ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {p.activo ? "Disponible" : "Agotado"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={p.activo}
-                  aria-label={`${p.activo ? "Desactivar" : "Activar"} ${p.label}`}
-                  disabled={togglingProteina === p.id}
-                  onClick={() => handleToggleDisponibilidad(p)}
-                  className="relative shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-60"
-                  style={{ backgroundColor: p.activo ? "#7f1d1d" : "#d1d5db" }}
-                >
-                  <span
-                    className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
-                    style={{
-                      transform: p.activo ? "translateX(20px)" : "translateX(0)",
-                    }}
-                  />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
       </Accordion>
 
       {/* Mensaje de error de Google Sheets */}
@@ -1174,17 +1061,27 @@ export default function PurchasesSection({ initialPurchases, initialDeudas, erro
                         <td className="px-5 py-4 whitespace-nowrap">
                           {p.reembolsado ? (
                             <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                              Sí
+                              Sí {p.deDondeReembolso ? `(${p.deDondeReembolso})` : ""}
                             </span>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleMarcarReembolsado(p.rowNumber)}
-                              disabled={reembolsandoRow === p.rowNumber}
-                              className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 disabled:opacity-60 transition-colors"
-                            >
-                              {reembolsandoRow === p.rowNumber ? "Marcando..." : "No"}
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleMarcarReembolsado(p.rowNumber, "Efectivo")}
+                                disabled={reembolsandoRow === p.rowNumber}
+                                className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 disabled:opacity-60 transition-colors"
+                              >
+                                {reembolsandoRow === p.rowNumber ? "Marcando..." : "Efectivo"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMarcarReembolsado(p.rowNumber, "Cuenta")}
+                                disabled={reembolsandoRow === p.rowNumber}
+                                className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 disabled:opacity-60 transition-colors"
+                              >
+                                {reembolsandoRow === p.rowNumber ? "Marcando..." : "Cuenta"}
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>

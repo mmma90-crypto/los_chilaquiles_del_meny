@@ -369,6 +369,7 @@ export default function Pricing() {
   const [rojoSpice, setRojoSpice] = useState(null);
   const [proteins, setProteins] = useState({});
   const [toppings, setToppings] = useState([]);
+  const [nota, setNota] = useState("");
 
   /* disponibilidad de proteinas: mapa id -> activo. Mientras no cargue (o si
      falla la peticion), se usa el `activo` de menu.js como respaldo. */
@@ -485,6 +486,7 @@ export default function Pricing() {
     setRojoSpice(null);
     setProteins({});
     setToppings([]);
+    setNota("");
   }
 
   /* Reinicio total despues de enviar el pedido por WhatsApp: vacia el
@@ -512,7 +514,7 @@ export default function Pricing() {
      el resumen "Tu pedido". */
   function handleAddToCart() {
     if (!step1Complete) return;
-    const nuevaOrden = { base, verdeSpice, rojoSpice, proteins, toppings };
+    const nuevaOrden = { base, verdeSpice, rojoSpice, proteins, toppings, nota };
     setCart((prev) =>
       editingIndex === null
         ? [...prev, nuevaOrden]
@@ -533,6 +535,7 @@ export default function Pricing() {
     setRojoSpice(o.rojoSpice);
     setProteins(o.proteins);
     setToppings(o.toppings);
+    setNota(o.nota || "");
     setEditingIndex(index);
     setStage("menu");
     scrollToFormTop();
@@ -632,6 +635,7 @@ export default function Pricing() {
         base: baseLine?.value || "",
         proteinas: proteinLines.map((l) => l.value).join(", ") || "Sencillo",
         toppings: toppingsLine?.value || "",
+        nota: config.nota || "",
       };
     });
     const totalCarrito = ordenes.reduce((sum, o) => sum + o.total, 0);
@@ -652,6 +656,8 @@ export default function Pricing() {
         base: ordenes.map((o) => o.base).join(" | "),
         proteinas: ordenes.map((o) => o.proteinas).join(" | "),
         toppings: ordenes.map((o) => o.toppings).join(" | "),
+        precios: ordenes.map((o) => o.total).join(" | "),
+        notas: ordenes.map((o) => o.nota).join(" | "),
         total: totalCarrito,
         nombre: customerData.name,
         telefono: customerData.phone,
@@ -688,8 +694,9 @@ export default function Pricing() {
     const bloquesOrdenes = savedOrder.ordenes.flatMap((orden, i) => [
       varias ? `*Orden ${i + 1}* ($${orden.total}):` : "*Mi pedido:*",
       ...orden.lines.map((l) => `• ${l.label}: ${l.value}`),
+      orden.nota ? `• Instrucciones: ${orden.nota}` : null,
       "",
-    ]);
+    ].filter((l) => l !== null));
 
     const msgLines = [
       "¡Hola! Quiero hacer un pedido 🌮🌶️",
@@ -921,6 +928,17 @@ export default function Pricing() {
                   </div>
                 </StepCard>
 
+                {/* Instrucciones especiales (opcional) */}
+                <StepCard number="✎" title="Instrucciones especiales" badge="Opcional" accentColor="#9b8369">
+                  <textarea
+                    value={nota}
+                    onChange={(e) => setNota(e.target.value)}
+                    rows={2}
+                    placeholder="Ej. Totopos bien crujientes, sin cebolla, etc."
+                    style={inputStyle(false)}
+                  />
+                </StepCard>
+
                 {/* Agregar la orden al carrito (o guardar la edicion) */}
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                   {(editingIndex !== null || cart.length > 0) && (
@@ -1027,6 +1045,11 @@ export default function Pricing() {
                             {l.value}
                           </p>
                         ))}
+                        {cart[i]?.nota && (
+                          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#9b8369", fontStyle: "italic" }}>
+                            ✎ {cart[i].nota}
+                          </p>
+                        )}
                       </div>
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                         <button

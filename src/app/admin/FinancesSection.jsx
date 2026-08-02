@@ -29,6 +29,7 @@ const BASES_PLATILLO = [
   "Verde no picosa",
   "Roja picosa",
   "Roja no picosa",
+  "Combinada",
 ];
 const PROTEINAS_PLATILLO = ["Sencillo", "Pollo", "Barbacoa", "Chicharron", "Huevo"];
 const EXTRAS_PLATILLO = [
@@ -64,8 +65,19 @@ const initialForm = {
   metodoPago: "Efectivo",
   base: "",
   proteina: "",
-  extras: [],
+  // Mapa extra -> cantidad, para poder pedir "2 extra pollo" y no solo
+  // marcar/desmarcar cada extra una vez.
+  extras: {},
 };
+
+// Convierte el mapa de cantidades a texto ("2× Extra pollo, Extra huevo"),
+// mismo formato "N×" que ya usa el sitio para las cantidades de proteina.
+function extrasATexto(extras) {
+  return Object.entries(extras)
+    .filter(([, cantidad]) => cantidad > 0)
+    .map(([extra, cantidad]) => (cantidad > 1 ? `${cantidad}× ${extra}` : extra))
+    .join(", ");
+}
 
 export default function FinancesSection({ initialFinances, error }) {
   const [meses, setMeses] = useState(initialFinances || []);
@@ -157,9 +169,9 @@ export default function FinancesSection({ initialFinances, error }) {
       const res = await fetch("/api/finances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Los extras viajan como texto ("Extra huevo, Extra pollo"), igual
+        // Los extras viajan como texto ("2× Extra pollo, Extra huevo"), igual
         // que se guardan en la columna Extras de VentasManuales.
-        body: JSON.stringify({ ...form, extras: form.extras.join(", ") }),
+        body: JSON.stringify({ ...form, extras: extrasATexto(form.extras) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -448,29 +460,43 @@ export default function FinancesSection({ initialFinances, error }) {
                   </label>
                   <div className="flex flex-wrap gap-2 pt-1">
                     {EXTRAS_PLATILLO.map((extra) => {
-                      const selected = form.extras.includes(extra);
+                      const cantidad = form.extras[extra] || 0;
+                      function setCantidad(nueva) {
+                        setForm({
+                          ...form,
+                          extras: { ...form.extras, [extra]: Math.max(0, nueva) },
+                        });
+                      }
                       return (
-                        <button
+                        <div
                           key={extra}
-                          type="button"
-                          onClick={() =>
-                            setForm({
-                              ...form,
-                              extras: selected
-                                ? form.extras.filter((x) => x !== extra)
-                                : [...form.extras, extra],
-                            })
-                          }
-                          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                            selected
+                          className={`flex items-center gap-2 pl-3 pr-1.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                            cantidad > 0
                               ? "text-white border-transparent"
-                              : "text-gray-600 border-gray-300 bg-white hover:bg-gray-50"
+                              : "text-gray-600 border-gray-300 bg-white"
                           }`}
-                          style={selected ? { backgroundColor: "#7f1d1d" } : undefined}
+                          style={cantidad > 0 ? { backgroundColor: "#7f1d1d" } : undefined}
                         >
-                          {selected ? "✓ " : ""}
-                          {extra}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setCantidad(cantidad - 1)}
+                            disabled={cantidad === 0}
+                            className="w-4 h-4 flex items-center justify-center leading-none disabled:opacity-40"
+                          >
+                            −
+                          </button>
+                          <span>
+                            {cantidad > 1 ? `${cantidad}× ` : ""}
+                            {extra}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCantidad(cantidad + 1)}
+                            className="w-4 h-4 flex items-center justify-center leading-none"
+                          >
+                            +
+                          </button>
+                        </div>
                       );
                     })}
                   </div>

@@ -124,6 +124,24 @@ function contarPedido(totales, proteinasTexto) {
   });
 }
 
+// Cantidad de un extra dentro del texto de Extras ("2× Extra pollo, Extra
+// huevo"): busca el nombre del extra y, si trae prefijo "N×" pegado antes,
+// usa esa cantidad; si no, cuenta 1. Mismo formato "N×" que ya usa
+// contarPedido para las cantidades de proteina.
+function cantidadDeExtra(extrasTexto, extraLabel) {
+  const partes = String(extrasTexto || "")
+    .split(",")
+    .map((parte) => normalizeName(parte));
+  const key = normalizeName(extraLabel);
+  let total = 0;
+  partes.forEach((parte) => {
+    if (!parte.includes(key)) return;
+    const qtyMatch = parte.match(/^(\d+)\s*[x×]/);
+    total += qtyMatch ? Number(qtyMatch[1]) || 1 : 1;
+  });
+  return total;
+}
+
 // Suma la composicion de una venta manual (columnas Base, Proteina, Extras).
 // Las filas sin composicion (montos globales tipo "Venta domingo") no
 // aportan piezas.
@@ -134,13 +152,12 @@ function contarVentaManual(totales, venta) {
   } else if (normalizeName(venta.base)) {
     totales.sencillo += 1;
   }
-  const extras = normalizeName(venta.extras);
-  if (extras) {
-    if (extras.includes("extra huevo")) totales.extraHuevo += 1;
-    if (extras.includes("extra salsa")) totales.extraSalsa += 1;
-    if (extras.includes("extra prensado")) totales.extraPrensado += 1;
-    if (extras.includes("extra pollo")) totales.extraPollo += 1;
-    if (extras.includes("extra barbacoa")) totales.extraBarbacoa += 1;
+  if (normalizeName(venta.extras)) {
+    totales.extraHuevo += cantidadDeExtra(venta.extras, "extra huevo");
+    totales.extraSalsa += cantidadDeExtra(venta.extras, "extra salsa");
+    totales.extraPrensado += cantidadDeExtra(venta.extras, "extra prensado");
+    totales.extraPollo += cantidadDeExtra(venta.extras, "extra pollo");
+    totales.extraBarbacoa += cantidadDeExtra(venta.extras, "extra barbacoa");
   }
 }
 

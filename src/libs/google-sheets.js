@@ -170,14 +170,20 @@ const ORDERS_HEADERS = [
   "Base",
   "Proteinas",
   "Toppings",
+  "Precios",
+  "Notas",
   "Total",
   "Nombre",
   "Telefono",
   "Direccion",
   "Ubicacion",
   "Metodo de pago",
+  "Estado",
   "Acepto aviso de privacidad y terminos",
 ];
+
+// Estados posibles del ciclo de vida de un pedido, en el orden en que avanzan.
+export const ORDER_STATUSES = ["pendiente", "en_camino", "entregado"];
 
 async function getOrdersSheet(doc) {
   let sheet = doc.sheetsByTitle[ORDERS_SHEET_TITLE];
@@ -205,6 +211,8 @@ export async function addOrderToSheet({
   base,
   proteinas,
   toppings,
+  precios,
+  notas,
   total,
   nombre,
   telefono,
@@ -219,11 +227,14 @@ export async function addOrderToSheet({
     [h("Base")]: base || "",
     [h("Proteinas")]: proteinas || "",
     [h("Toppings")]: toppings || "",
+    [h("Precios")]: precios || "",
+    [h("Notas")]: notas || "",
     [h("Total")]: total ?? "",
     [h("Nombre")]: nombre || "",
     [h("Telefono")]: telefono || "",
     [h("Direccion")]: direccion || "",
     [h("Ubicacion")]: ubicacion || "",
+    [h("Estado")]: "pendiente",
     [h("Acepto aviso de privacidad y terminos")]: acceptTermsValue(aceptaTerminos),
   });
   invalidateRows(ORDERS_SHEET_TITLE);
@@ -238,13 +249,34 @@ export async function getOrders() {
     base: row.get(h("Base")) || "",
     proteinas: row.get(h("Proteinas")) || "",
     toppings: row.get(h("Toppings")) || "",
+    // Precio y nota de cada orden del carrito, mismo formato "|" que Base/
+    // Proteinas/Toppings. Los pedidos guardados antes de agregar estas
+    // columnas quedan vacios (la tarjeta del admin cae al total general).
+    precios: row.get(h("Precios")) || "",
+    notas: row.get(h("Notas")) || "",
     total: row.get(h("Total")) || "",
     nombre: row.get(h("Nombre")) || "",
     telefono: row.get(h("Telefono")) || "",
     direccion: row.get(h("Direccion")) || "",
     ubicacion: row.get(h("Ubicacion")) || "",
     metodoPago: row.get(h("Metodo de pago")) || "",
+    // Los pedidos guardados antes de agregar esta columna no tienen Estado:
+    // se asumen "pendiente" para no perderlos de la lista de seguimiento.
+    estado: row.get(h("Estado")) || "pendiente",
+    rowNumber: row.rowNumber,
   }));
+}
+
+// Elimina un pedido por numero de fila (el mismo rowNumber que devuelve
+// getOrders()). Accion irreversible: el llamador (panel admin) debe pedir
+// confirmacion antes de invocarla.
+export async function deleteOrder(rowNumber) {
+  const { sheet, rows } = await getRowsCached(ORDERS_SHEET_TITLE, getOrdersSheet);
+  const row = rows.find((r) => r.rowNumber === rowNumber);
+  if (!row) return false;
+  await row.delete();
+  invalidateRows(ORDERS_SHEET_TITLE);
+  return true;
 }
 
 export async function updateOrderPaymentMethod(rowNumber, metodoPago) {
@@ -253,6 +285,17 @@ export async function updateOrderPaymentMethod(rowNumber, metodoPago) {
   const row = rows.find((r) => r.rowNumber === rowNumber);
   if (!row) return false;
   row.set(h("Metodo de pago"), metodoPago);
+  await row.save();
+  invalidateRows(ORDERS_SHEET_TITLE);
+  return true;
+}
+
+export async function updateOrderStatus(rowNumber, estado) {
+  const { sheet, rows } = await getRowsCached(ORDERS_SHEET_TITLE, getOrdersSheet);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const row = rows.find((r) => r.rowNumber === rowNumber);
+  if (!row) return false;
+  row.set(h("Estado"), estado);
   await row.save();
   invalidateRows(ORDERS_SHEET_TITLE);
   return true;
@@ -269,6 +312,7 @@ const PURCHASES_HEADERS = [
   "Pagado",
   "Financiado por",
   "Reembolsado",
+  "De donde reembolso",
   "Metodo de pago compra",
   "Tarjeta",
 ];
@@ -335,9 +379,10 @@ export async function addPurchase({
     [h("Cantidad")]: cant,
     [h("Unidad")]: unidad || "",
     [h("Total")]: total,
-    [h("Pagado")]: pagado ? "Si" : "No",
+    [h("Pagado")]: (pagado || reembolsadoFinal) ? "Si" : "No",
     [h("Financiado por")]: financiado,
     [h("Reembolsado")]: reembolsadoFinal ? "Si" : "No",
+    [h("De donde reembolso")]: esEfectivo ? "Efectivo" : "",
     [h("Metodo de pago compra")]: metodoCompra,
     [h("Tarjeta")]: tarjetaCompra,
   });
@@ -362,6 +407,7 @@ export async function getPurchases() {
     pagado: (row.get(h("Pagado")) || "").toLowerCase() === "si",
     financiadoPor: row.get(h("Financiado por")) || "",
     reembolsado: (row.get(h("Reembolsado")) || "").toLowerCase() === "si",
+    deDondeReembolso: row.get(h("De donde reembolso")) || "",
     metodoPagoCompra: row.get(h("Metodo de pago compra")) || "",
     tarjeta: row.get(h("Tarjeta")) || "",
     rowNumber: row.rowNumber,
@@ -370,7 +416,11 @@ export async function getPurchases() {
 
 // Marca (o desmarca) una compra existente como reembolsada, por numero de
 // fila (el mismo rowNumber que devuelve getPurchases()/addPurchase()).
-export async function updatePurchaseReembolso(rowNumber, reembolsado) {
+// deDondeReembolso ("Efectivo" | "Cuenta") indica de donde salio el dinero del
+// reembolso; computeExpectedCash lo usa para restar del lado correcto del
+// arqueo. Al reembolsar tambien se marca "Pagado" (las dos columnas seguian
+// desincronizadas: reembolsar no cambiaba "Pagado").
+export async function updatePurchaseReembolso(rowNumber, reembolsado, deDondeReembolso) {
   const { sheet, rows } = await getRowsCached(
     PURCHASES_SHEET_TITLE,
     getPurchasesSheet
@@ -379,6 +429,8 @@ export async function updatePurchaseReembolso(rowNumber, reembolsado) {
   const row = rows.find((r) => r.rowNumber === rowNumber);
   if (!row) return false;
   row.set(h("Reembolsado"), reembolsado ? "Si" : "No");
+  row.set(h("De donde reembolso"), reembolsado ? (deDondeReembolso || "Efectivo") : "");
+  if (reembolsado) row.set(h("Pagado"), "Si");
   await row.save();
   invalidateRows(PURCHASES_SHEET_TITLE);
   return true;
@@ -1700,7 +1752,8 @@ function computeExpectedCash(
   // restan en su fecha sin importar quien las financio. Las pagadas con
   // Tarjeta de credito no tocan la caja hasta que se marcan Reembolsado="Si"
   // (es cuando el dinero sale del negocio); se restan en la fecha de la
-  // compra. Las compras historicas sin metodo registrado no se restan aqui.
+  // compra, del lado (efectivo o cuenta) que se eligio al reembolsar. Las
+  // compras historicas sin metodo registrado no se restan aqui.
   (purchases || []).forEach((p) => {
     if (!enRango(p.fecha)) return;
     const metodo = normalizeName(p.metodoPagoCompra);
@@ -1711,7 +1764,11 @@ function computeExpectedCash(
       metodo === normalizeName("Tarjeta de credito") &&
       p.reembolsado
     ) {
-      efectivoEsperado -= total;
+      if (normalizeName(p.deDondeReembolso) === "cuenta") {
+        cuentaEsperado -= total;
+      } else {
+        efectivoEsperado -= total;
+      }
     }
   });
 
@@ -2224,6 +2281,24 @@ function contarPedidoEnTotales(totales, proteinasTexto) {
   });
 }
 
+// Cantidad de un extra dentro del texto de Extras ("2× Extra pollo, Extra
+// huevo"): busca el nombre del extra y, si trae prefijo "N×" pegado antes,
+// usa esa cantidad; si no, cuenta 1. Mismo formato "N×" que piezasDePedido
+// usa para las cantidades de proteina.
+function cantidadDeExtra(extrasTexto, extraLabel) {
+  const partes = String(extrasTexto || "")
+    .split(",")
+    .map((parte) => normalizeName(parte));
+  const key = normalizeName(extraLabel);
+  let total = 0;
+  partes.forEach((parte) => {
+    if (!parte.includes(key)) return;
+    const qtyMatch = parte.match(/^(\d+)\s*[x×]/);
+    total += qtyMatch ? Number(qtyMatch[1]) || 1 : 1;
+  });
+  return total;
+}
+
 // Suma en `totales` la composicion de una venta manual (columnas Base,
 // Proteina y Extras de VentasManuales). Las filas sin composicion (ventas
 // registradas antes de agregar esas columnas, o montos globales tipo "Venta
@@ -2236,13 +2311,12 @@ function contarVentaManualEnTotales(totales, venta) {
     // Hay base pero sin proteina: platillo sencillo.
     totales.sencillo += 1;
   }
-  const extras = normalizeName(venta.extras);
-  if (extras) {
-    if (extras.includes("extra huevo")) totales.extraHuevo += 1;
-    if (extras.includes("extra salsa")) totales.extraSalsa += 1;
-    if (extras.includes("extra prensado")) totales.extraPrensado += 1;
-    if (extras.includes("extra pollo")) totales.extraPollo += 1;
-    if (extras.includes("extra barbacoa")) totales.extraBarbacoa += 1;
+  if (normalizeName(venta.extras)) {
+    totales.extraHuevo += cantidadDeExtra(venta.extras, "extra huevo");
+    totales.extraSalsa += cantidadDeExtra(venta.extras, "extra salsa");
+    totales.extraPrensado += cantidadDeExtra(venta.extras, "extra prensado");
+    totales.extraPollo += cantidadDeExtra(venta.extras, "extra pollo");
+    totales.extraBarbacoa += cantidadDeExtra(venta.extras, "extra barbacoa");
   }
 }
 
