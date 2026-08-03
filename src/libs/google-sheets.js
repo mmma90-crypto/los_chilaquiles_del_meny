@@ -164,6 +164,88 @@ export async function addRowToSheet({ name, email, phone, message, aceptaTermino
   invalidateRows(LEADS_CACHE_TITLE);
 }
 
+const REVIEWS_SHEET_TITLE = "Resenas";
+const REVIEWS_HEADERS = ["Fecha", "Nombre", "Calificacion", "Comentario", "Aprobado"];
+
+async function getReviewsSheet(doc) {
+  let sheet = doc.sheetsByTitle[REVIEWS_SHEET_TITLE];
+  if (!sheet) {
+    sheet = await doc.addSheet({
+      title: REVIEWS_SHEET_TITLE,
+      headerValues: REVIEWS_HEADERS,
+    });
+  } else {
+    await sheet.loadHeaderRow();
+    const missing = REVIEWS_HEADERS.filter(
+      (label) => !sheet.headerValues.some((h) => h.toLowerCase() === label.toLowerCase())
+    );
+    if (missing.length > 0) {
+      await sheet.setHeaderRow([...sheet.headerValues, ...missing]);
+    }
+  }
+  return sheet;
+}
+
+// Las reseñas nuevas quedan pendientes ("No") hasta que el admin las apruebe
+// desde el panel; el sitio publico solo muestra las aprobadas.
+export async function addReview({ name, rating, comment }) {
+  const sheet = await getSheetCached(REVIEWS_SHEET_TITLE, getReviewsSheet);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  await sheet.addRow({
+    [h("Fecha")]: nowMxDateTimeString(),
+    [h("Nombre")]: name,
+    [h("Calificacion")]: rating,
+    [h("Comentario")]: comment,
+    [h("Aprobado")]: "No",
+  });
+  invalidateRows(REVIEWS_SHEET_TITLE);
+}
+
+function mapReviewRow(row, h) {
+  return {
+    fecha: row.get(h("Fecha")) || "",
+    nombre: row.get(h("Nombre")) || "",
+    calificacion: Number(row.get(h("Calificacion"))) || 0,
+    comentario: row.get(h("Comentario")) || "",
+    aprobado: (row.get(h("Aprobado")) || "").toLowerCase() === "si",
+    rowNumber: row.rowNumber,
+  };
+}
+
+// Todas las reseñas (pendientes y aprobadas), para el panel de admin.
+// Mas recientes primero.
+export async function getReviews() {
+  const { sheet, rows } = await getRowsCached(REVIEWS_SHEET_TITLE, getReviewsSheet);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  return rows.map((row) => mapReviewRow(row, h)).reverse();
+}
+
+// Solo las reseñas aprobadas, para mostrarlas en el sitio publico.
+export async function getApprovedReviews() {
+  const reviews = await getReviews();
+  return reviews.filter((r) => r.aprobado);
+}
+
+export async function approveReview(rowNumber) {
+  const { sheet, rows } = await getRowsCached(REVIEWS_SHEET_TITLE, getReviewsSheet);
+  const h = (label) => matchHeader(sheet.headerValues, label);
+  const row = rows.find((r) => r.rowNumber === rowNumber);
+  if (!row) return false;
+  row.set(h("Aprobado"), "Si");
+  await row.save();
+  invalidateRows(REVIEWS_SHEET_TITLE);
+  return true;
+}
+
+export async function deleteReview(rowNumber) {
+  const { sheet, rows } = await getRowsCached(REVIEWS_SHEET_TITLE, getReviewsSheet);
+  const row = rows.find((r) => r.rowNumber === rowNumber);
+  if (!row) return false;
+  await row.delete();
+  invalidateRows(REVIEWS_SHEET_TITLE);
+  return true;
+}
+
 const ORDERS_SHEET_TITLE = "Pedidos";
 const ORDERS_HEADERS = [
   "Fecha",

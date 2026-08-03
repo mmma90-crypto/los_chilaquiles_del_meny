@@ -104,6 +104,23 @@ export const siteConfig = {
   },
 
   // ─────────────────────────────────────────────
+  // RESEÑAS DE CLIENTES
+  // ─────────────────────────────────────────────
+  reviews: {
+    heading: "Lo que dicen nuestros clientes",
+    subheading: "Comparte tu experiencia o mira lo que opinan otros.",
+    form: {
+      namePlaceholder: "Tu nombre",
+      commentPlaceholder: "Cuéntanos qué te pareció...",
+      submitButton: "Publicar reseña",
+      sendingButton: "Publicando...",
+      successMessage: "¡Gracias por tu reseña!",
+      errorMessage: "Hubo un error al publicar. Inténtalo de nuevo.",
+      emptyMessage: "Aún no hay reseñas. ¡Sé el primero en dejar una!",
+    },
+  },
+
+  // ─────────────────────────────────────────────
   // SECCION DE CONTACTO
   // ─────────────────────────────────────────────
   contact: {
@@ -136,6 +153,7 @@ export const siteConfig = {
       { label: "Inicio", href: "#hero" },
       { label: "Nosotros", href: "#features" },
       { label: "Menú", href: "#pricing" },
+      { label: "Reseñas", href: "#reviews" },
       { label: "FAQ", href: "#faq" },
       { label: "Contacto", href: "#contact" },
     ],

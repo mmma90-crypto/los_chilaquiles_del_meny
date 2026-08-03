@@ -10,6 +10,7 @@ import {
   getFinancesSummary,
   getArqueosWithComparison,
   getRetiros,
+  getReviews,
   ensureAyudaSemanalActual,
   validateGuestToken,
 } from "@/libs/google-sheets";
@@ -93,6 +94,15 @@ export default async function AdminPage() {
     error = e.message || "Error desconocido al conectar con Google Sheets.";
   }
 
+  // Cargar las reseñas (pendientes y aprobadas) desde Google Sheets
+  let reviews = [];
+  let reviewsError = null;
+  try {
+    reviews = await getReviews();
+  } catch (e) {
+    reviewsError = e.message || "Error desconocido al conectar con Google Sheets.";
+  }
+
   // Cargar las compras de insumos y las deudas por reembolsar desde Google Sheets
   let purchases = [];
   let deudas = { yo: 0, papasVanessa: 0 };
@@ -164,6 +174,8 @@ export default async function AdminPage() {
         cashCountError={cashCountError}
         leads={leads}
         leadsError={error}
+        reviews={reviews}
+        reviewsError={reviewsError}
       />
     </div>
   );

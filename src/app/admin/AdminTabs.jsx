@@ -9,6 +9,7 @@ import FinancesSection from "./FinancesSection";
 import CashCountSection from "./CashCountSection";
 import RecipeEditor from "./RecipeEditor";
 import LeadsTable from "./LeadsTable";
+import ReviewsSection from "./ReviewsSection";
 
 const SECTIONS = [
   { id: "pedidos", label: "Pedidos" },
@@ -18,6 +19,7 @@ const SECTIONS = [
   { id: "arqueo", label: "Arqueo" },
   { id: "recetas", label: "Recetas" },
   { id: "leads", label: "Leads" },
+  { id: "resenas", label: "Reseñas" },
 ];
 
 export default function AdminTabs({
@@ -39,6 +41,8 @@ export default function AdminTabs({
   cashCountError,
   leads,
   leadsError,
+  reviews,
+  reviewsError,
 }) {
   const [section, setSection] = useState("pedidos");
 
@@ -128,6 +132,18 @@ export default function AdminTabs({
             Contactos recibidos desde el formulario.
           </p>
           <LeadsTable leads={leads} error={leadsError} />
+        </div>
+      )}
+
+      {section === "resenas" && (
+        <div className="max-w-7xl mx-auto px-6 pt-8 pb-12">
+          <h2 className="text-xl font-bold text-gray-900 mb-1">
+            Reseñas de clientes
+          </h2>
+          <p className="text-sm text-gray-500 mb-6">
+            Aprueba o elimina las reseñas enviadas desde el sitio.
+          </p>
+          <ReviewsSection reviews={reviews} error={reviewsError} />
         </div>
       )}
     </div>
