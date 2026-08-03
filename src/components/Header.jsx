@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { siteConfig } from "@/config/site";
 import { useScrollReveal } from "@/components/useScrollReveal";
 
@@ -28,19 +29,18 @@ export default function Header() {
               width: 42,
               height: 42,
               borderRadius: "50%",
-              background: "#D6452B",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontFamily: "'Baloo 2', sans-serif",
-              fontWeight: 800,
-              fontSize: 20,
+              overflow: "hidden",
               boxShadow: "0 6px 16px rgba(214,69,43,.32)",
               flexShrink: 0,
             }}
           >
-            M
+            <Image
+              src="/logo-chilaquiles.jpg"
+              alt={name}
+              width={42}
+              height={42}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
           </div>
           <div style={{ lineHeight: 1.1 }}>
             <div

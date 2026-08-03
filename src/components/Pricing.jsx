@@ -1421,7 +1421,7 @@ export default function Pricing() {
                     {[
                       { k: "efectivo", label: "💵 Efectivo" },
                       { k: "transferencia", label: "📲 Transferencia" },
-                      { k: "tarjeta", label: "💳 Tarjeta" },
+                      // Tarjeta (PayPal) oculta temporalmente mientras se revisan comisiones.
                     ].map((o) => (
                       <PayChip
                         key={o.k}
