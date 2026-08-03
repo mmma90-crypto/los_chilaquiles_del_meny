@@ -21,10 +21,7 @@ async function isAuthenticated() {
   return token === makeToken(adminPassword);
 }
 
-// Avisa por Telegram cuando se guarda un pedido nuevo, sin depender de que el
-// cliente llegue a mandar el WhatsApp de confirmacion. Corre del lado del
-// servidor (nunca en el navegador) para no exponer el token del bot.
-// El carrito viaja en una sola fila: Base/Proteinas/Toppings/Precios
+// El carrito viaja en una sola fila: Base/Proteinas/Toppings/Precios/Notas
 // concatenan cada orden con " | ". Aqui se separan para armar un bloque por
 // orden, igual que ya hace splitPedidoOrdenes() en OrdersDashboard.
 function splitPedidoOrdenes(pedido) {
@@ -33,11 +30,13 @@ function splitPedidoOrdenes(pedido) {
   const proteinas = split(pedido.proteinas);
   const toppings = split(pedido.toppings);
   const precios = split(pedido.precios);
+  const notas = split(pedido.notas);
   const numOrdenes = Math.max(bases.length, proteinas.length, toppings.length);
   return Array.from({ length: numOrdenes }, (_, i) => ({
     detalle: [bases[i], proteinas[i]].filter(Boolean).join(" + "),
     toppings: toppings[i] || "",
     precio: precios[i] || "",
+    nota: notas[i] || "",
   })).filter((o) => o.detalle);
 }
 
@@ -54,7 +53,12 @@ async function notifyTelegram(pedido, rowNumber) {
   const folio = rowNumber ? ` #${String(rowNumber).padStart(3, "0")}` : "";
   const bloquesOrdenes = splitPedidoOrdenes(pedido).map((o, i) => {
     const precio = o.precio ? ` — $${o.precio}` : "";
-    return [`ORDEN ${i + 1}${precio}`, o.detalle, o.toppings ? `Toppings: ${o.toppings}` : null]
+    return [
+      `ORDEN ${i + 1}${precio}`,
+      o.detalle,
+      o.toppings ? `Toppings: ${o.toppings}` : null,
+      o.nota ? `Notas: ${o.nota}` : null,
+    ]
       .filter(Boolean)
       .join("\n");
   });
@@ -69,6 +73,8 @@ async function notifyTelegram(pedido, rowNumber) {
     `📱 WhatsApp cliente: ${pedido.telefono || "—"}`,
     `📍 ${pedido.direccion || "—"}`,
     pedido.ubicacion ? `🗺️ ${pedido.ubicacion}` : null,
+    pedido.codigoAcceso ? `🔑 Código de acceso: ${pedido.codigoAcceso}` : null,
+    pedido.referencia ? `ℹ️ Referencia: ${pedido.referencia}` : null,
   ]
     .filter((l) => l !== null)
     .join("\n");

@@ -663,6 +663,8 @@ export default function Pricing() {
         telefono: customerData.phone,
         direccion: customerData.address,
         ubicacion: customerData.locationUrl,
+        codigoAcceso: customerData.accessCode,
+        referencia: customerData.accessRef,
         aceptaTerminos: acceptedTerms,
       }),
     })

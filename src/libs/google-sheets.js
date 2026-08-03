@@ -177,6 +177,8 @@ const ORDERS_HEADERS = [
   "Telefono",
   "Direccion",
   "Ubicacion",
+  "Codigo de acceso",
+  "Referencia",
   "Metodo de pago",
   "Estado",
   "Acepto aviso de privacidad y terminos",
@@ -218,6 +220,8 @@ export async function addOrderToSheet({
   telefono,
   direccion,
   ubicacion,
+  codigoAcceso,
+  referencia,
   aceptaTerminos,
 }) {
   const sheet = await getSheetCached(ORDERS_SHEET_TITLE, getOrdersSheet);
@@ -234,6 +238,8 @@ export async function addOrderToSheet({
     [h("Telefono")]: telefono || "",
     [h("Direccion")]: direccion || "",
     [h("Ubicacion")]: ubicacion || "",
+    [h("Codigo de acceso")]: codigoAcceso || "",
+    [h("Referencia")]: referencia || "",
     [h("Estado")]: "pendiente",
     [h("Acepto aviso de privacidad y terminos")]: acceptTermsValue(aceptaTerminos),
   });
@@ -259,6 +265,8 @@ export async function getOrders() {
     telefono: row.get(h("Telefono")) || "",
     direccion: row.get(h("Direccion")) || "",
     ubicacion: row.get(h("Ubicacion")) || "",
+    codigoAcceso: row.get(h("Codigo de acceso")) || "",
+    referencia: row.get(h("Referencia")) || "",
     metodoPago: row.get(h("Metodo de pago")) || "",
     // Los pedidos guardados antes de agregar esta columna no tienen Estado:
     // se asumen "pendiente" para no perderlos de la lista de seguimiento.
